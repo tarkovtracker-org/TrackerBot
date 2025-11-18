@@ -1,3 +1,6 @@
+//
+//  webserver.js
+//
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -24,7 +27,6 @@ app.post("/submit", async (req, res) => {
 
     const body = `**Discord Pseudo :** ${discord}\n\n**Description :**\n${description}`;
 
-    // Créer l'issue GitHub
     const response = await axios.post(
       `https://api.github.com/repos/${process.env.GITHUB_REPO}/issues`,
       { title, body },

@@ -1,3 +1,6 @@
+//
+//  bot.js
+//
 import { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
 import dotenv from "dotenv";
 
