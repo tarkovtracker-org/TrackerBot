@@ -1,10 +1,9 @@
-# TrackerBot — Minimal Documentation
+# TrackerBot — Documentation
 
 ## 1. Prerequisites
 
 - Node.js installed
 - npm available
-- Your main file must be named `bot.js`
 
 Install dependencies:
 ```bash
@@ -16,3 +15,5 @@ To start the bot:
 ```bash
 npm bot.js
 ```
+
+### You can also use *pm2* to run TrackerBot in background.
