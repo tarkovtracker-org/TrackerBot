@@ -29,7 +29,7 @@ client.once("clientReady", async () => {
       new ButtonBuilder()
         .setLabel("Create a request")
         .setStyle(ButtonStyle.Link)
-        .setURL("https://page.nivmizz7.fr")
+        .setURL("https://issue.tarkovtracker.org")
     );
 
     // Create an embed
