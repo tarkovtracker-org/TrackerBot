@@ -24,15 +24,15 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
+const welcomeMessages = new Map();
+
 client.once("ready", async () => {
   console.log(`Bot logged in as ${client.user.tag}`);
 
   const bugReportChannelId = process.env.BUG_REPORT_CHANNEL_ID;
   const roleChannelId = process.env.ROLE_CHANNEL_ID;
-
   const bugChannel = await client.channels.fetch(bugReportChannelId);
   const roleChannel = await client.channels.fetch(roleChannelId);
-
   if (!bugChannel?.isTextBased() || !roleChannel?.isTextBased()) return;
 
   const guild = bugChannel.guild;
@@ -116,4 +116,28 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
+client.on("guildMemberAdd", async member => {
+  const channel = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
+  if (!channel || !channel.isTextBased()) return;
+
+  const msg = await channel.send(`Welcome to **TarkovTracker.org** Discord server ${member}.`);
+  welcomeMessages.set(member.id, msg.id);
+});
+
+client.on("guildMemberRemove", async member => {
+  const channel = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
+  if (!channel || !channel.isTextBased()) return;
+
+  const msgId = welcomeMessages.get(member.id);
+  if (!msgId) return;
+
+  try {
+    const msg = await channel.messages.fetch(msgId);
+    await msg.delete();
+  } catch (e) {}
+
+  welcomeMessages.delete(member.id);
+});
+
 client.login(process.env.DISCORD_TOKEN);
+
