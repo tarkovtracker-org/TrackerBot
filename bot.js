@@ -8,8 +8,12 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  Partials
+  Partials,
+  SlashCommandBuilder,
+  Routes,
+  Events
 } from "discord.js";
+import { REST } from "@discordjs/rest";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -26,29 +30,53 @@ const client = new Client({
 
 const welcomeMessages = new Map();
 
-client.once("ready", async () => {
+client.once(Events.ClientReady, async () => {
   console.log(`Bot logged in as ${client.user.tag}`);
 
-  const bugReportChannelId = process.env.BUG_REPORT_CHANNEL_ID;
-  const roleChannelId = process.env.ROLE_CHANNEL_ID;
-  const bugChannel = await client.channels.fetch(bugReportChannelId);
-  const roleChannel = await client.channels.fetch(roleChannelId);
-  if (!bugChannel?.isTextBased() || !roleChannel?.isTextBased()) return;
+  // Register /message command
+  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+  const commandData = [
+    new SlashCommandBuilder()
+      .setName("message")
+      .setDescription("Send a message as the bot")
+      .addStringOption(opt =>
+        opt.setName("content")
+          .setDescription("Message content (use \\n for new lines)")
+          .setRequired(true)
+      ).toJSON()
+  ];
+  try {
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commandData });
+    console.log("Slash command registered.");
+  } catch (err) {
+    console.error(err);
+  }
 
-  const guild = bugChannel.guild;
+  // Channels
+  const bugReportChannel = await client.channels.fetch(process.env.BUG_REPORT_CHANNEL_ID);
+  const roleChannel = await client.channels.fetch(process.env.ROLE_CHANNEL_ID);
+
+  if (!bugReportChannel?.isTextBased() || !roleChannel?.isTextBased()) return;
+
+  const guild = bugReportChannel.guild;
 
   const roles = {
     site: guild.roles.cache.find(r => r.name.toLowerCase() === "site"),
     monitor: guild.roles.cache.find(r => r.name.toLowerCase() === "monitor"),
     polls: guild.roles.cache.find(r => r.name.toLowerCase() === "polls"),
+    news: guild.roles.cache.find(r => r.name.toLowerCase() === "news"),
     notifs: guild.roles.cache.find(r => r.name.toLowerCase() === "notifs")
   };
 
-  if (!roles.site || !roles.monitor || !roles.polls || !roles.notifs) return;
+  if (!roles.site || !roles.monitor || !roles.polls || !roles.news || !roles.notifs) {
+    console.log("Missing roles. Fix role names in Discord.");
+    return;
+  }
 
-  const bugMessages = await bugChannel.messages.fetch({ limit: 50 });
-  const bugOldMsg = bugMessages.find(m => m.author.id === client.user.id);
-  if (bugOldMsg) await bugOldMsg.delete();
+  // BUG REPORT MESSAGE
+  const oldBugMsg = (await bugReportChannel.messages.fetch({ limit: 50 }))
+    .find(m => m.author.id === client.user.id);
+  if (oldBugMsg) await oldBugMsg.delete();
 
   const bugEmbed = new EmbedBuilder()
     .setTitle("Bug Report")
@@ -62,36 +90,58 @@ client.once("ready", async () => {
       .setURL("https://issue.tarkovtracker.org")
   );
 
-  await bugChannel.send({
-    embeds: [bugEmbed],
-    components: [bugButton]
-  });
+  await bugReportChannel.send({ embeds: [bugEmbed], components: [bugButton] });
 
-  const roleMessages = await roleChannel.messages.fetch({ limit: 50 });
-  const roleOldMsg = roleMessages.find(m => m.author.id === client.user.id);
-  if (roleOldMsg) await roleOldMsg.delete();
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("role_site").setLabel("Site").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("role_monitor").setLabel("Monitor").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("role_polls").setLabel("Polls").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("role_notifs").setLabel("Notifications").setStyle(ButtonStyle.Primary)
-  );
+  // ROLE REACTION MESSAGE
+  const oldRoleMsg = (await roleChannel.messages.fetch({ limit: 50 }))
+    .find(m => m.author.id === client.user.id);
+  if (oldRoleMsg) await oldRoleMsg.delete();
 
   const roleEmbed = new EmbedBuilder()
-    .setTitle("Available Roles")
-    .setDescription("Click the buttons below to add or remove a role.")
-    .setColor(0x00aaff);
+    .setTitle("Reaction Roles")
+    .setColor(0x0099ff)
+    .setDescription(
+`**@everyone** – Very important global notifications.  
+(Major issues/changes affecting all users)
 
-  await roleChannel.send({
-    embeds: [roleEmbed],
-    components: [row]
-  });
+**@here** – Urgent short-term notifications (max 6h)
 
-  console.log("Both messages sent");
+---
+
+### React For Roles
+
+🌐 = **@site** – Site updates  
+🖥️ = **@monitor** – Tarkov Monitor updates  
+📋 = **@polls** – Community polls  
+📰 = **@news** – News & updates  
+🔔 = **@notifs** – All notifications`
+    );
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("role_site").setLabel("🌐 Site").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("role_monitor").setLabel("🖥️ Monitor").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("role_polls").setLabel("📋 Polls").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("role_news").setLabel("📰 News").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("role_notifs").setLabel("🔔 Notifs").setStyle(ButtonStyle.Primary)
+  );
+
+  await roleChannel.send({ embeds: [roleEmbed], components: [row] });
+
+  console.log("Messages sent.");
 });
 
 client.on("interactionCreate", async interaction => {
+  // SLASH COMMAND
+  if (interaction.isChatInputCommand() && interaction.commandName === "message") {
+    if (!interaction.member.permissions.has("Administrator")) {
+      return interaction.reply({ content: "You do not have permission.", flags: 64 });
+    }
+    const content = interaction.options.getString("content").replace(/\\n/g, "\n");
+    await interaction.reply({ content: "Message sent.", flags: 64 });
+    return interaction.channel.send(content);
+  }
+
+  // BUTTONS
   if (!interaction.isButton()) return;
 
   const member = interaction.member;
@@ -101,43 +151,45 @@ client.on("interactionCreate", async interaction => {
     role_site: guild.roles.cache.find(r => r.name.toLowerCase() === "site"),
     role_monitor: guild.roles.cache.find(r => r.name.toLowerCase() === "monitor"),
     role_polls: guild.roles.cache.find(r => r.name.toLowerCase() === "polls"),
+    role_news: guild.roles.cache.find(r => r.name.toLowerCase() === "news"),
     role_notifs: guild.roles.cache.find(r => r.name.toLowerCase() === "notifs")
   };
 
   const role = roleMap[interaction.customId];
-  if (!role) return interaction.reply({ content: "Role not found.", ephemeral: true });
+  if (!role) return;
 
-  if (member.roles.cache.has(role.id)) {
-    await member.roles.remove(role);
-    return interaction.reply({ content: `Removed role: ${role.name}`, ephemeral: true });
-  } else {
-    await member.roles.add(role);
-    return interaction.reply({ content: `Added role: ${role.name}`, ephemeral: true });
+  try {
+    if (member.roles.cache.has(role.id)) {
+      await member.roles.remove(role);
+      if (!interaction.replied) await interaction.reply({ content: `Removed role: ${role.name}`, flags: 64 });
+    } else {
+      await member.roles.add(role);
+      if (!interaction.replied) await interaction.reply({ content: `Added role: ${role.name}`, flags: 64 });
+    }
+  } catch (err) {
+    console.error(err);
+    if (!interaction.replied) await interaction.reply({ content: "Error assigning role.", flags: 64 });
   }
 });
 
+// WELCOME / GOODBYE
 client.on("guildMemberAdd", async member => {
   const channel = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
-  if (!channel || !channel.isTextBased()) return;
-
+  if (!channel?.isTextBased()) return;
   const msg = await channel.send(`Welcome to **TarkovTracker.org** Discord server ${member}.`);
   welcomeMessages.set(member.id, msg.id);
 });
 
 client.on("guildMemberRemove", async member => {
   const channel = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
-  if (!channel || !channel.isTextBased()) return;
-
+  if (!channel?.isTextBased()) return;
   const msgId = welcomeMessages.get(member.id);
   if (!msgId) return;
-
   try {
     const msg = await channel.messages.fetch(msgId);
     await msg.delete();
-  } catch (e) {}
-
+  } catch {}
   welcomeMessages.delete(member.id);
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
