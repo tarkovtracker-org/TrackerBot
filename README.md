@@ -58,3 +58,22 @@ pm2 startup
 ```
 
 Your bot will now run in the background and automatically restart if it stops or the system reboots.
+
+## Admin Panel (Discord OAuth)
+
+The repo also includes `adminserver.js`, an Express app that lets Discord admins send custom embed messages or re-post the reaction-role card without using slash commands.
+
+1. Create a Discord application for OAuth and note its Client ID & Secret.
+2. Add the following variables to your `.env` file:
+   - `ADMIN_PANEL_PORT` (default `4001`)
+   - `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`
+   - `DISCORD_REDIRECT_URI` (e.g., `http://localhost:4001/auth/discord/callback`)
+   - `PANEL_ADMIN_ROLE_ID` (role ID that is allowed to access the panel)
+3. Start the panel locally with:
+
+   ```bash
+   node adminserver.js
+   ```
+
+4. Visit `http://localhost:4001`, log in with Discord, and ensure your account has the configured admin role inside the guild defined by `GUILD_ID`.
+5. Use the panel to send embed announcements or trigger the reaction-role message into the channel ID of your choice.
