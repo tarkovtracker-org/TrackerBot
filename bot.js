@@ -174,8 +174,24 @@ client.on("interactionCreate", async interaction => {
 
 // WELCOME / GOODBYE
 client.on("guildMemberAdd", async member => {
-  const channel = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
+  const guild = member.guild;
+
+  // === AJOUT AUTOMATIQUE DU RÔLE "User" ===
+  const userRole = guild.roles.cache.find(r => r.name.toLowerCase() === "User");
+  if (userRole) {
+    try {
+      await member.roles.add(userRole);
+    } catch (err) {
+      console.error("Erreur en ajoutant le rôle User :", err);
+    }
+  } else {
+    console.warn('Rôle "User" introuvable sur ce serveur.');
+  }
+
+  // Message de bienvenue
+  const channel = guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!channel?.isTextBased()) return;
+
   const msg = await channel.send(`Welcome to **TarkovTracker.org** Discord server ${member}.`);
   welcomeMessages.set(member.id, msg.id);
 });
