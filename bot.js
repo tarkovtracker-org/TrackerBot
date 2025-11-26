@@ -31,6 +31,12 @@ const client = new Client({
 });
 
 const welcomeMessages = new Map();
+const allowedCommandRoles = new Set([
+  "1433391726051197020",
+  "1433391010532163644",
+  "1434775970044186655",
+  "1433390879640653864"
+]);
 
 client.once(Events.ClientReady, async () => {
   console.log(`Bot logged in as ${client.user.tag}`);
@@ -196,6 +202,16 @@ client.once(Events.ClientReady, async () => {
 // Slash Commands
 //
 client.on("interactionCreate", async interaction => {
+
+  //
+  // Global slash-command role gate
+  //
+  if (interaction.isChatInputCommand()) {
+    const canUseCommands = interaction.member.roles.cache.some(r => allowedCommandRoles.has(r.id));
+    if (!canUseCommands) {
+      return interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
+    }
+  }
 
   //
   // /message (ONLY Discord Admin role)
