@@ -51,6 +51,14 @@ client.once(Events.ClientReady, async () => {
       ),
 
     new SlashCommandBuilder()
+      .setName("faq1")
+      .setDescription("Post the FAQ notice about site stability"),
+
+    new SlashCommandBuilder()
+      .setName("utd")
+      .setDescription("Post the update-in-progress notice"),
+
+    new SlashCommandBuilder()
       .setName("ticket-close")
       .setDescription("Close this ticket and move it to Archive")
   ].map(c => c.toJSON());
@@ -204,6 +212,34 @@ client.on("interactionCreate", async interaction => {
     const content = interaction.options.getString("content").replace(/\\n/g, "\n");
     await interaction.reply({ content: "Message sent.", flags: 64 });
     return interaction.channel.send(content);
+  }
+
+  //
+  // /faq1
+  //
+  if (interaction.isChatInputCommand() && interaction.commandName === "faq1") {
+    const embed = new EmbedBuilder()
+      .setTitle("FAQ #1")
+      .setColor(0x0099ff)
+      .setDescription(
+        "TarkovTracker.org - Is being updated & fixed but will have problems, issues, bugs, downtime, at anytime. (We try to avoid it, but no guarantees. It's changing/updating so you should expect things to break/not work + potential loss of all account data.)"
+      );
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  //
+  // /utd
+  //
+  if (interaction.isChatInputCommand() && interaction.commandName === "utd") {
+    const embed = new EmbedBuilder()
+      .setTitle("Update In Progress")
+      .setColor(0xffaa00)
+      .setDescription(
+        "We are in the process of getting the website updated to the latest patch. Please be patient and feel free to report any changes you notice in the https://discord.com/channels/1433379620648124451/1439311904479772833"
+      );
+
+    return interaction.reply({ embeds: [embed] });
   }
 
   //
