@@ -25,5 +25,5 @@ jobs:
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
             cd /home/niv/TrackerBot-prod &&
             git pull origin prod &&
-            pm2 restart all
+            pm2 restart all || pm2 start index.js --name TrackerBot
           "
