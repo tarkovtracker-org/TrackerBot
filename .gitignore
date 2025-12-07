@@ -1,3 +1,26 @@
-.git/
-.env
+# Node.js / JavaScript
 node_modules/
+dist/
+.env
+npm-debug.log
+yarn-error.log
+
+# PM2 logs
+logs/
+pids/
+*.pid
+*.log
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Build / Temp
+tmp/
+temp/
+
+# GitHub Actions workflow folder ?
+# Non, tu NE dois PAS ignorer .github
+# car sinon le workflow ne sera jamais versionné
+# donc laisse .github dans le repo
