@@ -25,7 +25,7 @@ jobs:
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
             cd /home/niv/TrackerBot-prod &&
             git pull origin prod &&
-            pm2 start bot.js --name TrackerBot --update-env &&
-            pm2 start webserver.js --name TrackerBot-Web --update-env &&
-            pm2 start adminserver.js --name TrackerBot-Admin --update-env
+            pm2 restart TrackerBot || pm2 start bot.js --name TrackerBot --update-env &&
+            pm2 restart TrackerBot-Web || pm2 start webserver.js --name TrackerBot-Web --update-env &&
+            pm2 restart TrackerBot-Admin || pm2 start adminserver.js --name TrackerBot-Admin --update-env
           "
