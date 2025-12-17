@@ -5,7 +5,7 @@ echo "Deploy TrackerBot-prod"
 
 cd "$(dirname "$0")"
 
-echo "Mise à jour du code"
+echo "Update"
 git fetch origin
 git checkout prod
 git pull origin prod
