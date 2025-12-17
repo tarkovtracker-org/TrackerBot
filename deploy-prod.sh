@@ -20,4 +20,4 @@ pm2 reload ecosystem.config.cjs --update-env
 echo "Save PM2 state"
 pm2 save
 
-echo "Deploy terminé"
+echo "Deploy finish"
