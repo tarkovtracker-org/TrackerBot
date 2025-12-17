@@ -3,21 +3,23 @@ module.exports = {
     {
       name: "trackerbot-dev",
       cwd: __dirname,
-      script: "npm",
-      args: "run dev",
-      interpreter: "bash"
+      script: "/bin/bash",
+      args: "-lc 'npm run dev'",
+      autorestart: true
     },
     {
       name: "trackerbot-web",
       cwd: __dirname,
       script: "node",
-      args: "webserver.js"
+      args: "webserver.js",
+      autorestart: true
     },
     {
       name: "trackerbot-admin",
       cwd: __dirname,
       script: "node",
-      args: "adminserver.js"
+      args: "adminserver.js",
+      autorestart: true
     }
   ]
 }
