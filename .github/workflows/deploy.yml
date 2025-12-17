@@ -1,9 +1,9 @@
-name: Deploy Prod
+name: Deploy Test
 
 on:
   push:
     branches:
-      - prod
+      - test
 
 jobs:
   deploy:
@@ -20,6 +20,6 @@ jobs:
       - name: Deploy on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            cd /home/niv/TrackerBot-prod &&
+            cd /home/niv/TrackerBot-test &&
             ./deploy-prod.sh
           "
