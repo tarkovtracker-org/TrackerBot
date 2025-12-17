@@ -10,9 +10,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -20,12 +17,9 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Update prod + restart bot
+      - name: Deploy on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
             cd /home/niv/TrackerBot-prod &&
-            git pull origin prod &&
-            pm2 restart TrackerBot || pm2 start bot.js --name TrackerBot --update-env &&
-            pm2 restart TrackerBot-Web || pm2 start webserver.js --name TrackerBot-Web --update-env &&
-            pm2 restart TrackerBot-Admin || pm2 start adminserver.js --name TrackerBot-Admin --update-env
+            ./deploy-prod.sh
           "
