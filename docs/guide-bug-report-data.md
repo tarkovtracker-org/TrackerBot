@@ -6,7 +6,7 @@ Ce guide explique comment activer le formulaire `/bug-report-data/` et le messag
 
 1. Copier `.env.example` vers `.env` si ce n’est pas déjà fait.
 2. Renseigner les variables suivantes :
-   - `GITHUB_TOKEN` : doit avoir l’autorisation `repo` (ou un PAT d’organisation équivalent) **et** l’accès au dépôt `tarkovtracker-org/tarkov-data/overlay`. Ce même token est utilisé pour le dépôt principal (`GITHUB_REPO`).
+   - `GITHUB_TOKEN` : un token « classic » avec la permission `repo` suffit (pas besoin d’ajouter explicitement le dépôt cible tant que le token peut créer des issues). Ce même token est utilisé pour le dépôt principal (`GITHUB_REPO`) et pour `tarkovtracker-org/tarkov-data/overlay`.
    - `GITHUB_REPO` : dépôt GitHub qui accueille les bugs « classiques » (ex. `tarkovtracker-org/TrackerBot`).
    - `PORT` : port HTTP du serveur de formulaires (`3000` par défaut). Si un reverse proxy publie `https://issue.tarkovtracker.org`, faire pointer le proxy sur `localhost:3000`.
    - `DATA_BUG_CHANNEL_ID` : salon Discord où le bot doit poster la carte « Data Bug Report ».
