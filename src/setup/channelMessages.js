@@ -55,8 +55,8 @@ async function sendDataBugMessage(channel) {
   await clearPreviousBotMessage(channel);
 
   const dataBugEmbed = new EmbedBuilder()
-    .setTitle("Bug Report de Data")
-    .setDescription("Utilisez le bouton ci-dessous pour signaler un problème lié aux données.")
+    .setTitle("Data Bug Report")
+    .setDescription("Use the button below to flag an issue that specifically impacts Tarkov data or overlays.")
     .setColor(0xff3366);
 
   const dataBugButton = new ButtonBuilder()
