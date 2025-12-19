@@ -9,7 +9,9 @@
     "start:bot": "node bot.js",
     "start:web": "node webserver.js",
     "start:admin": "node adminserver.js",
-    "start": "concurrently -n bot,web,admin \"npm:start:bot\" \"npm:start:web\" \"npm:start:admin\""
+    "start": "concurrently -n bot,web,admin \"npm:start:bot\" \"npm:start:web\" \"npm:start:admin\"",
+    "deploy:test": "bash deploy-test.sh",
+    "deploy:prod": "bash deploy-prod.sh"
   },
   "keywords": [],
   "author": "",
