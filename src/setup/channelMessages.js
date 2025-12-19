@@ -1,11 +1,11 @@
 import {
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle,
-  EmbedBuilder
+  ButtonStyle
 } from "discord.js";
 import { getRequiredEnv } from "../config/env.js";
 import { reactionRoleButtonConfig } from "../config/constants.js";
+import { createCardEmbed } from "../utils/cardEmbed.js";
 
 export async function publishSetupMessages(client) {
   const channelEnvMap = {
@@ -35,10 +35,12 @@ export async function publishSetupMessages(client) {
 async function sendBugReportMessage(channel) {
   await clearPreviousBotMessage(channel);
 
-  const bugEmbed = new EmbedBuilder()
-    .setTitle("Bug Report")
-    .setDescription("If you want to report a bug, click the button below.")
-    .setColor(0x00ff00);
+  const bugEmbed = createCardEmbed({
+    title: "Bug Report",
+    description: "Found a UI or feature issue on TarkovTracker.org? Use the button below to open our web report form and file a GitHub issue.",
+    color: 0x25d6a2,
+    footer: "Tracker Support"
+  });
 
   const bugButton = new ButtonBuilder()
     .setLabel("Create a report")
@@ -54,10 +56,12 @@ async function sendBugReportMessage(channel) {
 async function sendDataBugMessage(channel) {
   await clearPreviousBotMessage(channel);
 
-  const dataBugEmbed = new EmbedBuilder()
-    .setTitle("Data Bug Report")
-    .setDescription("Use the button below to flag an issue that specifically impacts Tarkov data or overlays.")
-    .setColor(0xff3366);
+  const dataBugEmbed = createCardEmbed({
+    title: "Data Bug Report",
+    description: "Report problems that affect Tarkov data, overlays, or items directly. These posts route to the data repository so the telemetry team can fix them quickly.",
+    color: 0xff6b81,
+    footer: "Tracker Data Team"
+  });
 
   const dataBugButton = new ButtonBuilder()
     .setLabel("Data Bug Report")
@@ -73,18 +77,16 @@ async function sendDataBugMessage(channel) {
 async function sendReactionRoleMessage(channel) {
   await clearPreviousBotMessage(channel);
 
-  const roleEmbed = new EmbedBuilder()
-    .setTitle("Reaction Roles")
-    .setColor(0x0099ff)
-    .setDescription(
-      `Click a button to get a notification role.
-
-🌐 Site Updates
-🖥️ Monitor Updates
-📋 Community Polls
-📰 News
-🔔 Notifications`
-    );
+  const roleEmbed = createCardEmbed({
+    title: "Notification Roles",
+    description: "Pick the alerts you want to receive. Tap a button to toggle the matching Discord role.",
+    color: 0x5b8dff,
+    fields: reactionRoleButtonConfig.map(({ emoji, label }) => ({
+      name: `${emoji} ${label}`,
+      value: "Toggle on/off with the buttons below.",
+      inline: true
+    }))
+  });
 
   const buttonRow = new ActionRowBuilder();
   reactionRoleButtonConfig.forEach(({ customId, emoji, label }) => {
@@ -102,10 +104,11 @@ async function sendReactionRoleMessage(channel) {
 async function sendTicketMessage(channel) {
   await clearPreviousBotMessage(channel);
 
-  const ticketEmbed = new EmbedBuilder()
-    .setTitle("Support Tickets")
-    .setDescription("Click the button below to create a private support ticket.")
-    .setColor(0xffaa00);
+  const ticketEmbed = createCardEmbed({
+    title: "Support Tickets",
+    description: "Need direct help? Open a private ticket and the admin team will follow up in DMs.",
+    color: 0xffb347
+  });
 
   const ticketButton = new ButtonBuilder()
     .setCustomId("create_ticket")
