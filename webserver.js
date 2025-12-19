@@ -11,7 +11,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_REPO = "tarkovtracker-org/tarkov-data/overlay";
+const DATA_REPO = process.env.REPO_DATA_REPORT || "tarkovtracker-org/tarkov-data/overlay";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -29,7 +29,7 @@ app.post("/submit", async (req, res) => {
     const body = `**Discord handle:** ${discord}\n\n**Description:**\n${description}`;
 
     const response = await axios.post(
-      `https://api.github.com/repos/${process.env.GITHUB_REPO}/issues`,
+      `https://api.github.com/repos/${process.env.REPO_TARKOVTRACKER || process.env.GITHUB_REPO}/issues`,
       { title, body },
       { headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` } }
     );
