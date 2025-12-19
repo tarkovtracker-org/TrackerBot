@@ -1,25 +1,25 @@
 module.exports = {
   apps: [
     {
-      name: "TrackerBot-Prod_test",
+      name: "TrackerBot:bot",
       cwd: __dirname,
-      script: "node",
-      args: "bot.js",
+      script: "npm",
+      args: "run start:bot",
       autorestart: true
     },
     {
-      name: "TrackerBot-Web_test",
+      name: "TrackerBot:web",
       cwd: __dirname,
-      script: "node",
-      args: "webserver.js",
+      script: "npm",
+      args: "run start:web",
       autorestart: true
     },
     {
-      name: "TrackerBot-Admin_test",
+      name: "TrackerBot:admin",
       cwd: __dirname,
-      script: "node",
-      args: "adminserver.js",
+      script: "npm",
+      args: "run start:admin",
       autorestart: true
     }
   ]
-}
+};
