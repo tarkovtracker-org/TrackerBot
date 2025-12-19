@@ -66,7 +66,7 @@ async function sendDataBugMessage(channel) {
   const dataBugButton = new ButtonBuilder()
     .setLabel("Data Bug Report")
     .setStyle(ButtonStyle.Link)
-    .setURL("https://issue.tarkovtracker.org/bug-report");
+    .setURL("https://issue.tarkovtracker.org/bug-report-data");
 
   await channel.send({
     embeds: [dataBugEmbed],
