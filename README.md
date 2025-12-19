@@ -28,27 +28,25 @@ Copy `.env.example` to `.env` and fill in every value:
 
 ## 3. Run the services locally
 
-Terminal 1 – Discord bot:
+### Quick start (all services)
 
 ```bash
-node bot.js
+npm start
 ```
 
-Terminal 2 – public bug-report forms:
+This launches the bot, bug-report web server, and admin panel in parallel. Logs for each service are prefixed with `bot`, `web`, or `admin`.
+
+### Run services individually
 
 ```bash
-node webserver.js
-```
-
-Terminal 3 – admin panel:
-
-```bash
-node adminserver.js
+npm run start:bot   # Discord bot
+npm run start:web   # Public bug-report forms (http://localhost:3000)
+npm run start:admin # Admin panel (http://localhost:4001)
 ```
 
 - Bot login success is logged as soon as Discord authenticates the token.
 - `webserver.js` serves `http://localhost:3000` (main bug form) and `http://localhost:3000/bug-report-data/` (data-specific reports).
-- `adminserver.js` defaults to `http://localhost:4001` and requires Discord OAuth with the `PANEL_ADMIN_ROLE_ID`.
+- `adminserver.js` requires Discord OAuth with the `PANEL_ADMIN_ROLE_ID`.
 
 ## 4. Optional: run the bot with PM2
 
