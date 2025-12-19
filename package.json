@@ -11,7 +11,9 @@
     "start:admin": "node adminserver.js",
     "start": "concurrently -n bot,web,admin \"npm:start:bot\" \"npm:start:web\" \"npm:start:admin\"",
     "deploy:test": "bash deploy-test.sh",
-    "deploy:prod": "bash deploy-prod.sh"
+    "deploy:prod": "bash deploy-prod.sh",
+    "deploy-test": "bash deploy-test.sh",
+    "deploy-prod": "bash deploy-prod.sh"
   },
   "keywords": [],
   "author": "",
