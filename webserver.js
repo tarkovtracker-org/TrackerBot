@@ -11,6 +11,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const DATA_REPO = "tarkovtracker-org/tarkov-data/overlay";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -38,6 +39,40 @@ app.post("/submit", async (req, res) => {
   } catch (err) {
     console.error(err.response?.data || err);
     res.status(500).send("Error during the bug report.");
+  }
+});
+
+app.post("/submit-data-bug", async (req, res) => {
+  try {
+    const { title, discord, category, description, reference } = req.body;
+    if (!title || !discord || !category || !description) {
+      return res.status(400).json({ error: "All required fields must be provided." });
+    }
+
+    const lines = [
+      `**Discord handle:** ${discord}`,
+      `**Category:** ${category}`
+    ];
+
+    if (reference && reference.trim()) {
+      lines.push(`**Reference:** ${reference.trim()}`);
+    }
+
+    lines.push("", "**Details:**", description.trim());
+
+    await axios.post(
+      `https://api.github.com/repos/${DATA_REPO}/issues`,
+      {
+        title: `[${category}] ${title}`,
+        body: lines.join("\n")
+      },
+      { headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` } }
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err.response?.data || err);
+    res.status(500).json({ error: "Failed to submit the data report." });
   }
 });
 
