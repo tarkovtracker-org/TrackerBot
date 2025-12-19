@@ -117,17 +117,17 @@ app.post("/api/send-embed", requireAuth, async (req, res) => {
     await assertUserIsAdmin(req.user.id);
     const { channelId, title, description, color } = req.body;
     if (!channelId || !/^\d+$/.test(channelId)) {
-      return res.status(400).json({ error: "Channel ID invalide." });
+      return res.status(400).json({ error: "Invalid channel ID." });
     }
     if (!description || typeof description !== "string") {
-      return res.status(400).json({ error: "Description requise." });
+      return res.status(400).json({ error: "Description is required." });
     }
     const embed = buildEmbed({ title, description, color, author: req.user });
     await discordApi.post(`/channels/${channelId}/messages`, { embeds: [embed] });
     res.json({ ok: true });
   } catch (err) {
     console.error("Failed to send embed", err.response?.data || err.message);
-    res.status(500).json({ error: "Envoi échoué" });
+    res.status(500).json({ error: "Request failed." });
   }
 });
 
@@ -136,7 +136,7 @@ app.post("/api/send-role-message", requireAuth, async (req, res) => {
     await assertUserIsAdmin(req.user.id);
     const { channelId } = req.body;
     if (!channelId || !/^\d+$/.test(channelId)) {
-      return res.status(400).json({ error: "Channel ID invalide." });
+      return res.status(400).json({ error: "Invalid channel ID." });
     }
     const embed = {
       title: "Reaction Roles",
@@ -150,7 +150,7 @@ app.post("/api/send-role-message", requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error("Failed to send role message", err.response?.data || err.message);
-    res.status(500).json({ error: "Envoi échoué" });
+    res.status(500).json({ error: "Request failed." });
   }
 });
 
@@ -169,7 +169,7 @@ function buildEmbed({ title, description, color, author }) {
     description: trimmedDescription,
     color: parsedColor,
     timestamp: new Date().toISOString(),
-    footer: { text: `Envoyé par ${author.username}` }
+    footer: { text: `Posted by ${author.username}` }
   };
 }
 
@@ -466,7 +466,7 @@ function attachSession(res, id) {
 
 function requireAuth(req, res, next) {
   const session = getSession(req);
-  if (!session) return res.status(401).json({ error: "Non authentifié" });
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
   req.user = session.user;
   return next();
 }
