@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 echo "Update"
 git fetch origin
 git checkout prod
-git pull origin prod
+git reset --hard origin/prod
 
 echo "Install deps"
 npm install
