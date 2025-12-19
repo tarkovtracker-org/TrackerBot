@@ -25,7 +25,7 @@ app.post("/submit", async (req, res) => {
     if (!title || !discord || !description)
       return res.status(400).send("Fields marked * are required.");
 
-    const body = `**Discord Pseudo :** ${discord}\n\n**Description :**\n${description}`;
+    const body = `**Discord handle:** ${discord}\n\n**Description:**\n${description}`;
 
     const response = await axios.post(
       `https://api.github.com/repos/${process.env.GITHUB_REPO}/issues`,
