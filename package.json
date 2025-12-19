@@ -5,7 +5,11 @@
   "type": "module",
   "main": "bot.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start:bot": "node bot.js",
+    "start:web": "node webserver.js",
+    "start:admin": "node adminserver.js",
+    "start": "concurrently -n bot,web,admin \"npm:start:bot\" \"npm:start:web\" \"npm:start:admin\""
   },
   "keywords": [],
   "author": "",
@@ -16,5 +20,8 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "multer": "^2.0.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

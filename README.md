@@ -1,79 +1,64 @@
-# Setup Guide
+# TrackerBot
 
-## Prerequisites
+TrackerBot runs three services:
 
-Make sure the following are installed on your system:
+1. **Discord bot (`bot.js`)** – handles slash commands, reaction roles, welcome automation, and ticket creation.
+2. **Bug intake web server (`webserver.js`)** – serves the public bug-report forms and forwards submissions to GitHub.
+3. **Admin panel (`adminserver.js`)** – secured dashboard for Discord admins to push embeds and reaction-role cards.
 
-- Node.js
-- npm
+The bot requires Node.js 18+.
 
-## Install Dependencies
-
-Run the following command in the project directory:
+## 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-## Configure Environment Variables
+## 2. Configure environment variables
 
-**1.** Edit the _.env.example_ file and fill in the required values.
+Copy `.env.example` to `.env` and fill in every value:
 
-**2.** Rename the file _.env.example_ to _.env_.
+- Discord bot basics: `DISCORD_TOKEN`, `GUILD_ID`
+- GitHub issue routing: `GITHUB_TOKEN`, `GITHUB_REPO`
+- Channel IDs for the automated posts: `BUG_REPORT_CHANNEL_ID`, `DATA_BUG_CHANNEL_ID`, `ROLE_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
+- Admin panel OAuth: `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, `PANEL_ADMIN_ROLE_ID`, `ADMIN_PANEL_PORT`
+- Web server port overrides: `PORT`
 
-## Test the bot
+> Tip: `GITHUB_TOKEN` needs `repo` scope (or equivalent granular access) to create issues in the configured repositories.
 
-Run the following command in the project directory:
+## 3. Run the services locally
+
+### Quick start (all services)
 
 ```bash
-npm run dev
+npm start
 ```
 
-If the bot starts without errors, continue to the next section.
+This launches the bot, bug-report web server, and admin panel in parallel. Logs for each service are prefixed with `bot`, `web`, or `admin`.
 
-## Run in Background with PM2
+### Run services individually
 
-**1.** Install PM2 globally if you do not have it:
+```bash
+npm run start:bot   # Discord bot
+npm run start:web   # Public bug-report forms (http://localhost:3000)
+npm run start:admin # Admin panel (http://localhost:4001)
+```
+
+- Bot login success is logged as soon as Discord authenticates the token.
+- `webserver.js` serves `http://localhost:3000` (main bug form) and `http://localhost:3000/bug-report-data/` (data-specific reports).
+- `adminserver.js` requires Discord OAuth with the `PANEL_ADMIN_ROLE_ID`.
+
+## 4. Optional: run the bot with PM2
 
 ```bash
 npm install -g pm2
-```
-
-**2.** Start the bot with PM2:
-
-```bash
 pm2 start bot.js --name TrackerBot
-```
-
-**3.** Save the PM2 process list so it restarts automatically on reboot:
-
-```bash
 pm2 save
-```
-
-**4.** Enable the PM2 startup script:
-
-```bash
 pm2 startup
 ```
 
-Your bot will now run in the background and automatically restart if it stops or the system reboots.
+## Deployment notes
 
-## Admin Panel (Discord OAuth)
-
-The repo also includes `adminserver.js`, an Express app that lets Discord admins send custom embed messages or re-post the reaction-role card without using slash commands.
-
-1. Create a Discord application for OAuth and note its Client ID & Secret.
-2. Add the following variables to your `.env` file:
-   - `ADMIN_PANEL_PORT` (default `4001`)
-   - `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`
-   - `DISCORD_REDIRECT_URI` (e.g., `http://localhost:4001/auth/discord/callback`)
-   - `PANEL_ADMIN_ROLE_ID` (role ID that is allowed to access the panel)
-3. Start the panel locally with:
-
-   ```bash
-   node adminserver.js
-   ```
-
-4. Visit `http://localhost:4001`, log in with Discord, and ensure your account has the configured admin role inside the guild defined by `GUILD_ID`.
-5. Use the panel to send embed announcements or trigger the reaction-role message into the channel ID of your choice.
+- Use `deploy-test.sh` or `deploy-prod.sh` as references for installing dependencies and restarting the PM2 processes on servers.
+- The bot registers global slash commands on startup. When adding commands, allow up to one hour for Discord to propagate them globally.
+- When rotating credentials, restart all services so environment variables are reloaded.

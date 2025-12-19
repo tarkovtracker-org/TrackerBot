@@ -117,17 +117,17 @@ app.post("/api/send-embed", requireAuth, async (req, res) => {
     await assertUserIsAdmin(req.user.id);
     const { channelId, title, description, color } = req.body;
     if (!channelId || !/^\d+$/.test(channelId)) {
-      return res.status(400).json({ error: "Channel ID invalide." });
+      return res.status(400).json({ error: "Invalid channel ID." });
     }
     if (!description || typeof description !== "string") {
-      return res.status(400).json({ error: "Description requise." });
+      return res.status(400).json({ error: "Description is required." });
     }
     const embed = buildEmbed({ title, description, color, author: req.user });
     await discordApi.post(`/channels/${channelId}/messages`, { embeds: [embed] });
     res.json({ ok: true });
   } catch (err) {
     console.error("Failed to send embed", err.response?.data || err.message);
-    res.status(500).json({ error: "Envoi échoué" });
+    res.status(500).json({ error: "Request failed." });
   }
 });
 
@@ -136,7 +136,7 @@ app.post("/api/send-role-message", requireAuth, async (req, res) => {
     await assertUserIsAdmin(req.user.id);
     const { channelId } = req.body;
     if (!channelId || !/^\d+$/.test(channelId)) {
-      return res.status(400).json({ error: "Channel ID invalide." });
+      return res.status(400).json({ error: "Invalid channel ID." });
     }
     const embed = {
       title: "Reaction Roles",
@@ -150,7 +150,7 @@ app.post("/api/send-role-message", requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error("Failed to send role message", err.response?.data || err.message);
-    res.status(500).json({ error: "Envoi échoué" });
+    res.status(500).json({ error: "Request failed." });
   }
 });
 
@@ -169,7 +169,7 @@ function buildEmbed({ title, description, color, author }) {
     description: trimmedDescription,
     color: parsedColor,
     timestamp: new Date().toISOString(),
-    footer: { text: `Envoyé par ${author.username}` }
+    footer: { text: `Posted by ${author.username}` }
   };
 }
 
@@ -182,101 +182,96 @@ function parseColor(value) {
 
 function renderLanding() {
   return `<!doctype html>
-  <html lang="fr">
+  <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Admin Panel</title>
+    <title>Tracker Admin Panel</title>
     <style>${baseStyles()}</style>
   </head>
-  <body>
-
-    <div class="container fade">
-      <div class="topbar">
-        <h1>Tracker Bot Panel</h1>
-      </div>
-
-      <div class="card center">
-        <h2>Connexion requise</h2>
-        <p>Connectez-vous via Discord pour accéder au panneau admin.</p>
-        <a class="button primary big" href="/auth/discord">Se connecter avec Discord</a>
+  <body class="landing">
+    <div class="shell fade">
+      <div class="hero-card card">
+        <p class="badge">Tracker Admin</p>
+        <h1>Sign in to manage announcements</h1>
+        <p class="lead">
+          Authenticate with your Discord account that has the admin role inside the TarkovTracker guild.
+          Once approved you can post embeds and rebuild the reaction-role panel directly from this dashboard.
+        </p>
+        <a class="button primary big" href="/auth/discord">Sign in with Discord</a>
       </div>
     </div>
-
   </body>
   </html>`;
 }
 
 function renderPanel(user) {
   return `<!doctype html>
-  <html lang="fr">
+  <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Admin Panel</title>
+    <title>Tracker Admin Panel</title>
     <style>${baseStyles()}</style>
   </head>
   <body>
-
-    <div class="container fade">
-
-      <div class="topbar">
+    <div class="shell fade">
+      <header class="toolbar">
         <div>
-          <h1>Panneau Admin</h1>
-          <span class="subtitle">Connecté en tant que <strong>${escapeHtml(user.username)}</strong></span>
+          <p class="badge">Tracker Admin</p>
+          <h1>Control Center</h1>
+          <span class="subtitle">Signed in as <strong>${escapeHtml(user.username)}</strong></span>
         </div>
-
         <form method="post" action="/logout">
-          <button class="button red" type="submit">Déconnexion</button>
+          <button class="button ghost" type="submit">Log out</button>
         </form>
-      </div>
+      </header>
 
-      <!-- SEND EMBED CARD -->
-      <div class="card">
-        <h2>Envoyer un Embed</h2>
+      <section class="grid">
+        <article class="card form-card">
+          <header>
+            <h2>Custom Embed</h2>
+            <p>Push an embed to any text channel using the bot identity.</p>
+          </header>
+          <form id="customMessageForm">
+            <label>Channel ID
+              <input name="channelId" placeholder="123456789" required />
+            </label>
+            <label>Title
+              <input name="title" placeholder="Leave empty for a default title" />
+            </label>
+            <label>Description
+              <textarea name="description" rows="5" placeholder="Message body..." required></textarea>
+            </label>
+            <label>Embed color
+              <input type="color" name="color" value="#5865f2" />
+            </label>
+            <button class="button primary" type="submit">Send Embed</button>
+          </form>
+        </article>
 
-        <form id="customMessageForm">
-          <label>Channel ID
-            <input name="channelId" placeholder="123456789" required />
-          </label>
+        <article class="card form-card">
+          <header>
+            <h2>Reaction Roles</h2>
+            <p>Re-post the full reaction role board after a cleanup.</p>
+          </header>
+          <form id="roleMessageForm">
+            <label>Channel ID
+              <input name="channelId" placeholder="123456789" required />
+            </label>
+            <button class="button primary" type="submit">Post Roles</button>
+          </form>
+        </article>
+      </section>
 
-          <label>Titre
-            <input name="title" placeholder="Titre de l'annonce" />
-          </label>
-
-          <label>Description
-            <textarea name="description" rows="5" placeholder="Message..." required></textarea>
-          </label>
-
-          <label>Couleur de l'embed
-            <input type="color" name="color" value="#5865f2" />
-          </label>
-
-          <button class="button primary" type="submit">Envoyer</button>
-        </form>
-      </div>
-
-      <!-- ROLES REACTION -->
-      <div class="card">
-        <h2>Poster les Reaction Roles</h2>
-
-        <form id="roleMessageForm">
-          <label>Channel ID
-            <input name="channelId" placeholder="123456789" required />
-          </label>
-
-          <button class="button primary" type="submit">Envoyer les rôles</button>
-        </form>
-      </div>
-
-      <div id="status"></div>
+      <div id="status" class="status"></div>
     </div>
 
     <script>
       const statusBox = document.getElementById('status');
       function setStatus(text, isError) {
         statusBox.textContent = text;
-        statusBox.className = isError ? 'error' : 'success';
+        statusBox.className = isError ? 'status error' : 'status success';
       }
 
       const customForm = document.getElementById('customMessageForm');
@@ -290,10 +285,10 @@ function renderPanel(user) {
             body: JSON.stringify(payload)
           });
           if (!res.ok) throw new Error();
-          setStatus('Message envoyé ✅');
+          setStatus('Embed sent successfully ✅');
           customForm.reset();
         } catch {
-          setStatus('Erreur lors de l’envoi', true);
+          setStatus('Failed to send embed', true);
         }
       });
 
@@ -308,10 +303,10 @@ function renderPanel(user) {
             body: JSON.stringify(payload)
           });
           if (!res.ok) throw new Error();
-          setStatus('Reaction roles envoyé ✅');
+          setStatus('Reaction role board sent ✅');
           roleForm.reset();
         } catch {
-          setStatus('Erreur lors de l’envoi', true);
+          setStatus('Failed to post reaction roles', true);
         }
       });
     </script>
@@ -323,112 +318,199 @@ function renderPanel(user) {
 function baseStyles() {
 return `
 :root {
-  --bg: #0f131a;
-  --card: #1c2431;
-  --accent: #5865f2;
-  --accent-hover: #4752c4;
-  --danger: #e5494d;
-  --danger-hover: #c93c3f;
-  --text: #f2f4f7;
-  --text-soft: #c7c9d1;
-  --radius: 14px;
-  --shadow: 0 8px 30px rgba(0,0,0,0.35);
-  font-family: Inter, system-ui, sans-serif;
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --bg: radial-gradient(circle at top, #1f2a44, #0c111c 60%);
+  --card: rgba(18, 23, 35, 0.95);
+  --border: rgba(255, 255, 255, 0.08);
+  --accent: #7f8cff;
+  --accent-hover: #6c75ff;
+  --ghost: rgba(255, 255, 255, 0.1);
+  --text: #f7f8fc;
+  --muted: rgba(247, 248, 252, 0.7);
+  --radius: 18px;
+  --shadow: 0 25px 60px rgba(0, 0, 0, 0.45);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
   background: var(--bg);
   color: var(--text);
 }
 
-.container {
-  max-width: 860px;
-  margin: auto;
-  padding: 32px;
+.shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
 }
 
-.fade { animation: fadeIn .3s ease-out; }
+.fade {
+  animation: fadeIn 0.35s ease;
+}
 
 .card {
   background: var(--card);
-  padding: 24px;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
+  padding: 28px;
   box-shadow: var(--shadow);
-  margin-top: 28px;
+  backdrop-filter: blur(10px);
 }
 
-.card.center {
-  text-align: center;
+.hero-card h1 {
+  margin: 12px 0 8px;
 }
 
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.lead {
+  color: var(--muted);
+  line-height: 1.6;
   margin-bottom: 28px;
 }
 
-.subtitle {
-  opacity: .7;
-  font-size: .9rem;
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 
-h1, h2 {
-  margin: 0 0 10px;
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 28px;
+  gap: 20px;
+}
+
+.subtitle {
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.form-card header p {
+  color: var(--muted);
+  margin: 4px 0 0;
 }
 
 label {
   display: block;
-  margin-top: 14px;
-  font-weight: 500;
+  margin-top: 18px;
+  font-weight: 600;
+  font-size: 0.95rem;
 }
 
-input, textarea {
+input,
+textarea {
   width: 100%;
-  margin-top: 6px;
-  padding: 12px;
-  border-radius: var(--radius);
-  border: 1px solid #2a3544;
-  background: #131820;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   font-size: 1rem;
-  transition: .15s border;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
 }
 
-input:focus, textarea:focus {
+input:focus,
+textarea:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
   outline: none;
 }
 
-.button {
-  padding: 12px 20px;
-  border-radius: var(--radius);
-  border: none;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 1rem;
-  margin-top: 18px;
-  display: inline-block;
-  text-align: center;
-  transition: .15s;
+textarea {
+  resize: vertical;
 }
 
-.button.primary { background: var(--accent); color: #fff; }
-.button.primary:hover { background: var(--accent-hover); }
+.button {
+  margin-top: 22px;
+  padding: 13px 22px;
+  border-radius: 999px;
+  border: none;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  color: #fff;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
 
-.button.big { padding: 14px 24px; font-size: 1.1rem; }
+.button.primary {
+  background: linear-gradient(120deg, #7f8cff, #a77bff);
+}
 
-.button.red { background: var(--danger); }
-.button.red:hover { background: var(--danger-hover); }
+.button.primary:hover {
+  background: linear-gradient(120deg, #6c75ff, #9665ff);
+  transform: translateY(-1px);
+}
 
-#error { color: #ff6b6b; }
-.success { color: #4ade80; margin-top:20px; }
-.error { color: #f87171; margin-top:20px; }
+.button.big {
+  width: fit-content;
+  padding-inline: 32px;
+  font-size: 1.05rem;
+}
+
+.button.ghost {
+  background: var(--ghost);
+  color: var(--text);
+}
+
+.button.ghost:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.status {
+  margin-top: 28px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  font-weight: 600;
+  text-align: center;
+  display: none;
+}
+
+.status.success {
+  display: block;
+  background: rgba(74, 222, 128, 0.12);
+  color: #86efac;
+  border: 1px solid rgba(74, 222, 128, 0.4);
+}
+
+.status.error {
+  display: block;
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 `;
 }
@@ -466,7 +548,7 @@ function attachSession(res, id) {
 
 function requireAuth(req, res, next) {
   const session = getSession(req);
-  if (!session) return res.status(401).json({ error: "Non authentifié" });
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
   req.user = session.user;
   return next();
 }
