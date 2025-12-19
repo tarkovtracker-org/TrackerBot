@@ -6,8 +6,9 @@ Ce guide explique comment activer le formulaire `/bug-report-data/` et le messag
 
 1. Copier `.env.example` vers `.env` si ce n’est pas déjà fait.
 2. Renseigner les variables suivantes :
-   - `GITHUB_TOKEN` : un token « classic » avec la permission `repo` suffit (pas besoin d’ajouter explicitement le dépôt cible tant que le token peut créer des issues). Ce même token est utilisé pour le dépôt principal (`GITHUB_REPO`) et pour `tarkovtracker-org/tarkov-data/overlay`.
-   - `GITHUB_REPO` : dépôt GitHub qui accueille les bugs « classiques » (ex. `tarkovtracker-org/TrackerBot`).
+   - `GITHUB_TOKEN` : un token « classic » avec la permission `repo` suffit (pas besoin d’ajouter explicitement le dépôt cible tant que le token peut créer des issues). Ce même token est utilisé pour les deux dépôts configurés ci-dessous.
+   - `REPO_TARKOVTRACKER` : dépôt GitHub qui accueille les bugs « classiques » (ex. `tarkovtracker-org/TrackerBot`).
+   - `REPO_DATA_REPORT` : dépôt GitHub pour les bug reports data (ex. `tarkovtracker-org/tarkov-data/overlay`).
    - `PORT` : port HTTP du serveur de formulaires (`3000` par défaut). Si un reverse proxy publie `https://issue.tarkovtracker.org`, faire pointer le proxy sur `localhost:3000`.
    - `DATA_BUG_CHANNEL_ID` : salon Discord où le bot doit poster la carte « Data Bug Report ».
 3. Vérifier également `BUG_REPORT_CHANNEL_ID`, `ROLE_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID` et `DISCORD_TOKEN`, car le bot doit redémarrer pour republier les messages.
@@ -25,8 +26,8 @@ Ce guide explique comment activer le formulaire `/bug-report-data/` et le messag
 1. **Formulaire principal** : ouvrir `http://localhost:3000/` (ou votre domaine) et s’assurer que la page se charge.
 2. **Formulaire data** : ouvrir `http://localhost:3000/bug-report-data/`. Si la page ne charge pas, regarder les logs `webserver.js` (processus `TrackerBot` → préfixe `web` dans `npm start` ou `pm2 logs TrackerBot`).
 3. Soumettre un test :
-   - Un rapport classique doit créer une issue dans `GITHUB_REPO`.
-   - Un rapport data doit créer une issue dans `tarkovtracker-org/tarkov-data/overlay` avec le préfixe `[<Categorie>]`.
+   - Un rapport classique doit créer une issue dans `REPO_TARKOVTRACKER`.
+   - Un rapport data doit créer une issue dans `REPO_DATA_REPORT` avec le préfixe `[<Categorie>]`.
 4. Si GitHub renvoie une erreur `401/403`, vérifier que `GITHUB_TOKEN` est valide, qu’il a accès aux deux dépôts et redémarrer le serveur (les variables sont chargées au lancement).
 
 ## 4. Mise à jour du message Discord
