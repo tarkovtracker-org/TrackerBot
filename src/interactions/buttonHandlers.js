@@ -1,5 +1,12 @@
 import { ChannelType, PermissionFlagsBits } from "discord.js";
 import { reactionRoleNameMap } from "../config/constants.js";
+import { createCardEmbed } from "../utils/cardEmbed.js";
+
+const colors = {
+  success: 0x4ade80,
+  error: 0xff6b81,
+  info: 0x7f8cff
+};
 
 export async function handleButtonInteraction(interaction) {
   if (!interaction.isButton()) return false;
@@ -27,7 +34,13 @@ async function handleTicketCreation(interaction) {
 
   if (!ticketCategory) {
     await interaction.reply({
-      content: "Ticket category does not exist.",
+      embeds: [
+        createCardEmbed({
+          title: "Missing ticket category",
+          description: "Ticket category does not exist. Please create a category named **ticket**.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
     return;
@@ -39,7 +52,13 @@ async function handleTicketCreation(interaction) {
 
   if (existingTicket) {
     await interaction.reply({
-      content: `You already have a ticket: ${existingTicket}.`,
+      embeds: [
+        createCardEmbed({
+          title: "Ticket already open",
+          description: `You already have a ticket: ${existingTicket}.`,
+          color: colors.info
+        })
+      ],
       flags: 64
     });
     return;
@@ -97,17 +116,37 @@ async function handleTicketCreation(interaction) {
     });
 
     await ticketChannel.send(
-      `${member} your ticket has been created.\nA member of the <@&${adminRole?.id || ""}> team will assist you shortly.`
+      {
+        embeds: [
+          createCardEmbed({
+            title: "Ticket created",
+            description: `${member} we opened a private channel for you.\nA member of the <@&${adminRole?.id || ""}> team will assist shortly.`,
+            color: colors.info
+          })
+        ]
+      }
     );
 
     await interaction.reply({
-      content: `Your ticket has been created: ${ticketChannel}.`,
+      embeds: [
+        createCardEmbed({
+          title: "Ticket ready",
+          description: `Your ticket has been created: ${ticketChannel}.`,
+          color: colors.success
+        })
+      ],
       flags: 64
     });
   } catch (err) {
     console.error("Error creating ticket:", err);
     await interaction.reply({
-      content: "Failed to create ticket. Check bot permissions.",
+      embeds: [
+        createCardEmbed({
+          title: "Ticket failed",
+          description: "Failed to create ticket. Check bot permissions.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
   }
@@ -123,7 +162,13 @@ async function toggleReactionRole(interaction, roleName) {
 
   if (!role) {
     await interaction.reply({
-      content: "Role unavailable. Please contact an admin.",
+      embeds: [
+        createCardEmbed({
+          title: "Role missing",
+          description: "Role unavailable. Please contact an admin.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
     return;
@@ -132,13 +177,40 @@ async function toggleReactionRole(interaction, roleName) {
   try {
     if (member.roles.cache.has(role.id)) {
       await member.roles.remove(role);
-      await interaction.reply({ content: `Role removed: ${role.name}`, flags: 64 });
+      await interaction.reply({
+        embeds: [
+          createCardEmbed({
+            title: "Role removed",
+            description: `${role.name} notifications disabled.`,
+            color: colors.info
+          })
+        ],
+        flags: 64
+      });
     } else {
       await member.roles.add(role);
-      await interaction.reply({ content: `Role added: ${role.name}`, flags: 64 });
+      await interaction.reply({
+        embeds: [
+          createCardEmbed({
+            title: "Role added",
+            description: `${role.name} notifications enabled.`,
+            color: colors.success
+          })
+        ],
+        flags: 64
+      });
     }
   } catch (err) {
     console.error("Role error:", err);
-    await interaction.reply({ content: "Failed to update role.", flags: 64 });
+    await interaction.reply({
+      embeds: [
+        createCardEmbed({
+          title: "Role update failed",
+          description: "Failed to update role.",
+          color: colors.error
+        })
+      ],
+      flags: 64
+    });
   }
 }

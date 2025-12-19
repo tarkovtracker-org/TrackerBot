@@ -1,5 +1,12 @@
-import { EmbedBuilder, ChannelType, PermissionFlagsBits } from "discord.js";
+import { ChannelType, PermissionFlagsBits } from "discord.js";
 import { allowedCommandRoles } from "../config/constants.js";
+import { createCardEmbed } from "../utils/cardEmbed.js";
+
+const colors = {
+  success: 0x4ade80,
+  error: 0xff6b81,
+  info: 0x7f8cff
+};
 
 export async function handleChatInputCommand(interaction) {
   if (!interaction.isChatInputCommand()) return false;
@@ -10,7 +17,13 @@ export async function handleChatInputCommand(interaction) {
 
   if (!canUseCommands) {
     await interaction.reply({
-      content: "You do not have permission to use this command.",
+      embeds: [
+        createCardEmbed({
+          title: "Permission Required",
+          description: "You do not have permission to use this command.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
     return true;
@@ -38,37 +51,54 @@ async function handleMessageCommand(interaction) {
   const isAdmin = hasDiscordAdminRole(interaction.member.roles.cache);
   if (!isAdmin) {
     await interaction.reply({
-      content: "You do not have permission to use this command.",
+      embeds: [
+        createCardEmbed({
+          title: "Permission Required",
+          description: "You do not have permission to use this command.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
     return;
   }
 
   const content = interaction.options.getString("content").replace(/\\n/g, "\n");
-  await interaction.reply({ content: "Message sent.", flags: 64 });
+  await interaction.reply({
+    embeds: [
+      createCardEmbed({
+        title: "Message sent",
+        description: "Your announcement was posted in this channel.",
+        color: colors.success
+      })
+    ],
+    flags: 64
+  });
   await interaction.channel.send(content);
 }
 
 async function handleFaqCommand(interaction) {
-  const embed = new EmbedBuilder()
-    .setTitle("FAQ #1")
-    .setColor(0x0099ff)
-    .setDescription(
-      "TarkovTracker.org - Is being updated & fixed but will have problems, issues, bugs, downtime, at anytime. (We try to avoid it, but no guarantees. It's changing/updating so you should expect things to break/not work + potential loss of all account data.)"
-    );
-
-  await interaction.reply({ embeds: [embed] });
+  await interaction.reply({
+    embeds: [
+      createCardEmbed({
+        title: "FAQ #1 – Website Stability",
+        description: "TarkovTracker.org is actively updated and may have issues, bugs, or downtime at any moment. Expect things to break or data loss while we iterate.",
+        color: colors.info
+      })
+    ]
+  });
 }
 
 async function handleUtdCommand(interaction) {
-  const embed = new EmbedBuilder()
-    .setTitle("Update In Progress")
-    .setColor(0xffaa00)
-    .setDescription(
-      "We are in the process of getting the website updated to the latest patch. Please be patient and feel free to report any changes you notice in the https://discord.com/channels/1433379620648124451/1439311904479772833"
-    );
-
-  await interaction.reply({ embeds: [embed] });
+  await interaction.reply({
+    embeds: [
+      createCardEmbed({
+        title: "Update In Progress",
+        description: "We are updating TarkovTracker to the latest patch. Please be patient and report notable changes in <#1439311904479772833> so we can adjust quickly.",
+        color: 0xffb347
+      })
+    ]
+  });
 }
 
 async function handleTicketClose(interaction) {
@@ -76,7 +106,13 @@ async function handleTicketClose(interaction) {
 
   if (!channel.topic || !channel.topic.startsWith("Ticket for ")) {
     await interaction.reply({
-      content: "This command can only be used inside a ticket channel.",
+      embeds: [
+        createCardEmbed({
+          title: "Wrong channel",
+          description: "This command can only be used inside a ticket channel.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
     return;
@@ -89,7 +125,13 @@ async function handleTicketClose(interaction) {
 
   if (!isAdmin && !isOwner) {
     await interaction.reply({
-      content: "You are not allowed to close this ticket.",
+      embeds: [
+        createCardEmbed({
+          title: "Permission Required",
+          description: "Only the ticket owner or Discord Admins can close this ticket.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
     return;
@@ -102,7 +144,13 @@ async function handleTicketClose(interaction) {
 
   if (!archiveCategory) {
     await interaction.reply({
-      content: "Archive category does not exist.",
+      embeds: [
+        createCardEmbed({
+          title: "Missing Archive",
+          description: "Archive category does not exist. Please create it inside the guild.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
     return;
@@ -110,15 +158,35 @@ async function handleTicketClose(interaction) {
 
   try {
     await channel.setParent(archiveCategory.id);
-    await channel.send("Ticket has been closed and moved to Archive.");
+    await channel.send({
+      embeds: [
+        createCardEmbed({
+          title: "Ticket archived",
+          description: "This conversation has been archived for reference.",
+          color: colors.info
+        })
+      ]
+    });
     await interaction.reply({
-      content: "Ticket successfully archived.",
+      embeds: [
+        createCardEmbed({
+          title: "Ticket closed",
+          description: "Ticket successfully archived.",
+          color: colors.success
+        })
+      ],
       flags: 64
     });
   } catch (err) {
     console.error("Error closing ticket:", err);
     await interaction.reply({
-      content: "Failed to archive ticket. Check bot permissions.",
+      embeds: [
+        createCardEmbed({
+          title: "Archive failed",
+          description: "Failed to archive ticket. Check bot permissions.",
+          color: colors.error
+        })
+      ],
       flags: 64
     });
   }
