@@ -39,7 +39,7 @@ async function sendBugReportMessage(channel) {
     title: "Bug Report",
     description: "Found a UI or feature issue on TarkovTracker.org? Use the button below to open our web report form and file a GitHub issue.",
     color: 0x25d6a2,
-    footer: "Tracker Support"
+    footer: "TarkovTracker Team"
   });
 
   const bugButton = new ButtonBuilder()
@@ -60,7 +60,7 @@ async function sendDataBugMessage(channel) {
     title: "Data Bug Report",
     description: "Report problems that affect Tarkov data, overlays, or items directly. These posts route to the data repository so the telemetry team can fix them quickly.",
     color: 0xff6b81,
-    footer: "Tracker Data Team"
+    footer: "TarkovTracker Team"
   });
 
   const dataBugButton = new ButtonBuilder()
