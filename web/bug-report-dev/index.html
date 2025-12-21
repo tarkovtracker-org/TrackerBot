@@ -16,7 +16,7 @@
           Reports here are filed straight into <code>tarkovtracker-org/tarkov-data/overlay</code>.
         </p>
 
-        <form id="dataBugForm">
+        <form id="devBugForm">
           <label for="title">Title *</label>
           <input type="text" name="title" id="title" placeholder="Example: Wrong barter data for item" required />
 
@@ -54,34 +54,38 @@
       </section>
     </main>
 
-    <script>
-      const form = document.getElementById("dataBugForm");
-      const statusBox = document.getElementById("dataStatus");
+<script>
+  const form = document.getElementById("dataBugForm");
+  const statusBox = document.getElementById("dataStatus");
 
-      function showStatus(message, isError = false) {
-        statusBox.textContent = message;
-        statusBox.className = isError ? "status error" : "status success";
-      }
+  function showStatus(message, isError = false) {
+    statusBox.textContent = message;
+    statusBox.className = isError ? "status error" : "status success";
+  }
 
-      form.addEventListener("submit", async event => {
-        event.preventDefault();
-        showStatus("Submitting data bug...");
-        const payload = Object.fromEntries(new FormData(form).entries());
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    showStatus("Submitting data bug report...");
 
-        try {
-          const res = await fetch("/submit-data-dev", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          if (!res.ok) throw new Error();
-          form.reset();
-          showStatus("Thanks! Your data report is now tracked.");
-        } catch (err) {
-          console.error(err);
-          showStatus("Unable to send the data report. Please try again.", true);
-        }
+    const payload = Object.fromEntries(new FormData(form).entries());
+
+    try {
+      const res = await fetch("/submit-data-bug", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
       });
-    </script>
+
+      if (!res.ok) throw new Error();
+
+      form.reset();
+      showStatus("Thanks! Your data bug is now tracked.");
+    } catch (err) {
+      console.error(err);
+      showStatus("Unable to send the data bug. Please try again.", true);
+    }
+  });
+</script>
+
   </body>
 </html>
