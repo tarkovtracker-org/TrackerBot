@@ -76,6 +76,29 @@ app.post("/submit-data-bug", async (req, res) => {
   }
 });
 
+app.post("/bug-report-dev", async (req, res) => {
+  try {
+    const { title, discord, description } = req.body;
+    if (!title || !discord || !description)
+      return res.status(400).send("Fields marked * are required.");
+
+    const body = `**Discord handle:** ${discord}\n\n**Description:**\n${description}`;
+
+    const response = await axios.post(
+      `https://api.github.com/repos/${process.env.REPO_DEV || process.env.GITHUB_REPO}/issues`,
+      { title, body },
+      { headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` } }
+    );
+
+    res.status(200).send("Ok");
+
+  } catch (err) {
+    console.error(err.response?.data || err);
+    res.status(500).send("Error during the bug report.");
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`Webserver running on port ${PORT}`);
 });
