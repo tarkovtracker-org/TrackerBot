@@ -40,7 +40,7 @@
     </main>
 
 <script>
-  const form = document.getElementById("dataBugForm");
+  const form = document.getElementById("devBugForm");
   const statusBox = document.getElementById("dataStatus");
 
   function showStatus(message, isError = false) {
@@ -50,7 +50,7 @@
 
   form.addEventListener("submit", async event => {
     event.preventDefault();
-    showStatus("Submitting data bug report...");
+    showStatus("Submitting dev bug report...");
 
     const payload = Object.fromEntries(new FormData(form).entries());
 
@@ -64,13 +64,14 @@
       if (!res.ok) throw new Error();
 
       form.reset();
-      showStatus("Thanks! Your data bug is now tracked.");
+      showStatus("Thanks! Your dev bug is now tracked.");
     } catch (err) {
       console.error(err);
-      showStatus("Unable to send the data bug. Please try again.", true);
+      showStatus("Unable to send the dev bug. Please try again.", true);
     }
   });
 </script>
+
 
   </body>
 </html>
