@@ -12,7 +12,8 @@ export async function publishSetupMessages(client) {
     bugReport: "BUG_REPORT_CHANNEL_ID",
     dataBug: "DATA_BUG_CHANNEL_ID",
     role: "ROLE_CHANNEL_ID",
-    ticket: "TICKET_CHANNEL_ID"
+    ticket: "TICKET_CHANNEL_ID",
+    devBug: "DEV_BUG_CHANNEL_ID"
   };
 
   const channels = {};
@@ -67,6 +68,27 @@ async function sendDataBugMessage(channel) {
     .setLabel("Data Bug Report")
     .setStyle(ButtonStyle.Link)
     .setURL("https://issue.tarkovtracker.org/bug-report-data");
+
+  await channel.send({
+    embeds: [dataBugEmbed],
+    components: [new ActionRowBuilder().addComponents(dataBugButton)]
+  });
+}
+
+async function sendDevBugMessage(channel) {
+  await clearPreviousBotMessage(channel);
+
+  const dataBugEmbed = createCardEmbed({
+    title: "Dev Bug Report",
+    description: "Report problems that affect dev.tarkovtracker.org, the Nuxt version of TarkovTracker.",
+    color: 0xff6b81,
+    footer: "TarkovTracker Team"
+  });
+
+  const dataBugButton = new ButtonBuilder()
+    .setLabel("Data Bug Report")
+    .setStyle(ButtonStyle.Link)
+    .setURL("https://issue.tarkovtracker.org/bug-report-dev");
 
   await channel.send({
     embeds: [dataBugEmbed],
