@@ -29,6 +29,7 @@ export async function publishSetupMessages(client) {
 
   await sendBugReportMessage(channels.bugReport);
   await sendDataBugMessage(channels.dataBug);
+  await sendDevBugMessage(channels.devBug);
   await sendReactionRoleMessage(channels.role);
   await sendTicketMessage(channels.ticket);
 }
