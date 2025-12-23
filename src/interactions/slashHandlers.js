@@ -218,6 +218,15 @@ async function handleArchiveChannel(interaction) {
 
   try {
     await channel.setParent(archiveCategory.id);
+    await channel.send({
+      embeds: [
+        createCardEmbed({
+          title: "Channel archived",
+          description: "This channel has been archived.",
+          color: colors.info
+        })
+      ]
+    });
     await interaction.reply({
       embeds: [
         createCardEmbed({
