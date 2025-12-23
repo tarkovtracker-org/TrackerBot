@@ -1,8 +1,5 @@
 export const allowedCommandRoles = new Set([
-  "1433391726051197020",
-  "1433391010532163644",
-  "1434775970044186655",
-  "1433390879640653864"
+  "1433391726051197020"
 ]);
 
 export const reactionRoleButtonConfig = [
