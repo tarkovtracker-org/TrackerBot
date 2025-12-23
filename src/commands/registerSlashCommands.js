@@ -17,9 +17,6 @@ const slashCommands = [
     .setName("utd")
     .setDescription("Post the update-in-progress notice"),
   new SlashCommandBuilder()
-    .setName("ticket-close")
-    .setDescription("Close this ticket and move it to Archive"),
-  new SlashCommandBuilder()
     .setName("archive")
     .setDescription("Archive this channel and move it to Archive")
 ];

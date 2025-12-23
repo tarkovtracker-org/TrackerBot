@@ -39,9 +39,6 @@ export async function handleChatInputCommand(interaction) {
     case "utd":
       await handleUtdCommand(interaction);
       return true;
-    case "ticket-close":
-      await handleTicketClose(interaction);
-      return true;
     case "archive":
       await handleArchiveChannel(interaction);
       return true;
@@ -102,97 +99,6 @@ async function handleUtdCommand(interaction) {
       })
     ]
   });
-}
-
-async function handleTicketClose(interaction) {
-  const channel = interaction.channel;
-
-  if (!channel.topic || !channel.topic.startsWith("Ticket for ")) {
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Wrong channel",
-          description: "This command can only be used inside a ticket channel.",
-          color: colors.error
-        })
-      ],
-      flags: 64
-    });
-    return;
-  }
-
-  const ticketUserId = channel.topic.replace("Ticket for ", "").trim();
-
-  const isAdmin = hasDiscordAdminRole(interaction.member.roles.cache);
-  const isOwner = interaction.user.id === ticketUserId;
-
-  if (!isAdmin && !isOwner) {
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Permission Required",
-          description: "Only the ticket owner or Discord Admins can close this ticket.",
-          color: colors.error
-        })
-      ],
-      flags: 64
-    });
-    return;
-  }
-
-  const guild = interaction.guild;
-  const archiveCategory = guild.channels.cache.find(
-    c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === "archive"
-  );
-
-  if (!archiveCategory) {
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Missing Archive",
-          description: "Archive category does not exist. Please create it inside the guild.",
-          color: colors.error
-        })
-      ],
-      flags: 64
-    });
-    return;
-  }
-
-  try {
-    await channel.setParent(archiveCategory.id);
-    await channel.send({
-      embeds: [
-        createCardEmbed({
-          title: "Ticket archived",
-          description: "This conversation has been archived for reference.",
-          color: colors.info
-        })
-      ]
-    });
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Ticket closed",
-          description: "Ticket successfully archived.",
-          color: colors.success
-        })
-      ],
-      flags: 64
-    });
-  } catch (err) {
-    console.error("Error closing ticket:", err);
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Archive failed",
-          description: "Failed to archive ticket. Check bot permissions.",
-          color: colors.error
-        })
-      ],
-      flags: 64
-    });
-  }
 }
 
 async function handleArchiveChannel(interaction) {
