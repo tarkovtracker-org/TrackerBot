@@ -42,6 +42,9 @@ export async function handleChatInputCommand(interaction) {
     case "ticket-close":
       await handleTicketClose(interaction);
       return true;
+    case "archive":
+      await handleArchiveChannel(interaction);
+      return true;
     default:
       return false;
   }
@@ -184,6 +187,54 @@ async function handleTicketClose(interaction) {
         createCardEmbed({
           title: "Archive failed",
           description: "Failed to archive ticket. Check bot permissions.",
+          color: colors.error
+        })
+      ],
+      flags: 64
+    });
+  }
+}
+
+async function handleArchiveChannel(interaction) {
+  const channel = interaction.channel;
+  const guild = interaction.guild;
+  const archiveCategory = guild.channels.cache.find(
+    c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === "archive"
+  );
+
+  if (!archiveCategory) {
+    await interaction.reply({
+      embeds: [
+        createCardEmbed({
+          title: "Missing Archive",
+          description: "Archive category does not exist. Please create it inside the guild.",
+          color: colors.error
+        })
+      ],
+      flags: 64
+    });
+    return;
+  }
+
+  try {
+    await channel.setParent(archiveCategory.id);
+    await interaction.reply({
+      embeds: [
+        createCardEmbed({
+          title: "Channel archived",
+          description: "Channel successfully archived.",
+          color: colors.success
+        })
+      ],
+      flags: 64
+    });
+  } catch (err) {
+    console.error("Error archiving channel:", err);
+    await interaction.reply({
+      embeds: [
+        createCardEmbed({
+          title: "Archive failed",
+          description: "Failed to archive channel. Check bot permissions.",
           color: colors.error
         })
       ],
