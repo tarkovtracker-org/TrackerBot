@@ -1,6 +1,5 @@
 import { Events } from "discord.js";
 import { getRequiredEnv } from "../config/env.js";
-import { createCardEmbed } from "../utils/cardEmbed.js";
 
 const welcomeMessages = new Map();
 
@@ -34,15 +33,9 @@ async function sendWelcomeMessage(member) {
   const channel = member.guild.channels.cache.get(channelId);
   if (!channel?.isTextBased()) return;
 
-  const message = await channel.send({
-    embeds: [
-      createCardEmbed({
-        title: "Welcome to TarkovTracker.org",
-        description: `Hey ${member}! Grab notification roles in the designated channel and let us know if you need help.`,
-        color: 0x7f8cff
-      })
-    ]
-  });
+  const message = await channel.send(
+    `Welcome to the **TarkovTracker.org** Discord server ${member}.`
+  );
 
   welcomeMessages.set(member.id, message.id);
 }
