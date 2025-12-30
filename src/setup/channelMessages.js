@@ -87,7 +87,7 @@ async function sendDevBugMessage(channel) {
   });
 
   const dataBugButton = new ButtonBuilder()
-    .setLabel("Data Bug Report")
+    .setLabel("Dev Bug Report")
     .setStyle(ButtonStyle.Link)
     .setURL("https://issue.tarkovtracker.org/bug-report-dev");
 
