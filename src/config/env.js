@@ -4,7 +4,10 @@ const requiredEnvVars = [
   "ROLE_CHANNEL_ID",
   "TICKET_CHANNEL_ID",
   "WELCOME_CHANNEL_ID",
-  "DATA_BUG_CHANNEL_ID"
+  "DATA_BUG_CHANNEL_ID",
+  "AUTO_ROLE_ID_1",
+  "AUTO_ROLE_ID_2",
+  "AUTO_ROLE_ID_3"
 ];
 
 export function getRequiredEnv(name) {
