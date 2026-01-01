@@ -4,14 +4,12 @@ import {
   ButtonStyle
 } from "discord.js";
 import { getRequiredEnv } from "../config/env.js";
-import { reactionRoleButtonConfig } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 
 export async function publishSetupMessages(client) {
   const channelEnvMap = {
     bugReport: "BUG_REPORT_CHANNEL_ID",
     dataBug: "DATA_BUG_CHANNEL_ID",
-    role: "ROLE_CHANNEL_ID",
     ticket: "TICKET_CHANNEL_ID",
     devBug: "DEV_BUG_CHANNEL_ID"
   };
@@ -30,7 +28,6 @@ export async function publishSetupMessages(client) {
   await sendBugReportMessage(channels.bugReport);
   await sendDataBugMessage(channels.dataBug);
   await sendDevBugMessage(channels.devBug);
-  await sendReactionRoleMessage(channels.role);
   await sendTicketMessage(channels.ticket);
 }
 
@@ -95,33 +92,6 @@ async function sendDevBugMessage(channel) {
     embeds: [dataBugEmbed],
     components: [new ActionRowBuilder().addComponents(dataBugButton)]
   });
-}
-
-async function sendReactionRoleMessage(channel) {
-  await clearPreviousBotMessage(channel);
-
-  const roleEmbed = createCardEmbed({
-    title: "Notification Roles",
-    description: "Pick the alerts you want to receive. Tap a button to toggle the matching Discord role.",
-    color: 0x5b8dff,
-    fields: reactionRoleButtonConfig.map(({ emoji, label }) => ({
-      name: `${emoji} ${label}`,
-      value: "Toggle on/off with the buttons below.",
-      inline: true
-    }))
-  });
-
-  const buttonRow = new ActionRowBuilder();
-  reactionRoleButtonConfig.forEach(({ customId, emoji, label }) => {
-    buttonRow.addComponents(
-      new ButtonBuilder()
-        .setCustomId(customId)
-        .setLabel(`${emoji} ${label}`)
-        .setStyle(ButtonStyle.Primary)
-    );
-  });
-
-  await channel.send({ embeds: [roleEmbed], components: [buttonRow] });
 }
 
 async function sendTicketMessage(channel) {

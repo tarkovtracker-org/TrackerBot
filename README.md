@@ -20,7 +20,7 @@ Copy `.env.example` to `.env` and fill in every value:
 
 - Discord bot basics: `DISCORD_TOKEN`, `GUILD_ID`
 - GitHub issue routing: `GITHUB_TOKEN`, `REPO_TARKOVTRACKER`, `REPO_DATA_REPORT`
-- Channel IDs for the automated posts: `BUG_REPORT_CHANNEL_ID`, `DATA_BUG_CHANNEL_ID`, `ROLE_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
+- Channel IDs for the automated posts: `BUG_REPORT_CHANNEL_ID`, `DATA_BUG_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
 - Admin panel OAuth: `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, `PANEL_ADMIN_ROLE_ID`, `ADMIN_PANEL_PORT`
 - Web server port overrides: `PORT`
 
