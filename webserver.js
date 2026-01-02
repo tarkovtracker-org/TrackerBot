@@ -31,38 +31,9 @@ app.use(express.static(path.join(__dirname, "web")));
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 /**
- * Generic bug report
- */
-app.post("/submit", async (req, res) => {
-  try {
-    const { title, discord, description } = req.body;
-
-    if (![title, discord, description].every(v => v?.trim())) {
-      return res.status(400).json({ error: "Fields marked * are required." });
-    }
-
-    const body = `**Discord handle:** ${discord.trim()}
-
-**Description:**
-${description.trim()}`;
-
-    await axios.post(
-      `https://api.github.com/repos/${process.env.REPO_TARKOVTRACKER || process.env.GITHUB_REPO}/issues`,
-      { title: title.trim(), body },
-      { headers: GITHUB_HEADERS }
-    );
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err.response?.data || err);
-    res.status(500).json({ error: "Error during the bug report." });
-  }
-});
-
-/**
  * Data bug report
  */
-app.post("/submit-data-bug", async (req, res) => {
+app.post("/data", async (req, res) => {
   try {
     const { title, discord, category, description, reference } = req.body;
 
@@ -100,9 +71,9 @@ app.post("/submit-data-bug", async (req, res) => {
 });
 
 /**
- * Dev-only bug report
+ * Dev-only issue report
  */
-app.post("/bug-report-dev", async (req, res) => {
+app.post("/issue", async (req, res) => {
   try {
     const { title, discord, description } = req.body;
 

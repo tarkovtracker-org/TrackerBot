@@ -8,7 +8,6 @@ import { createCardEmbed } from "../utils/cardEmbed.js";
 
 export async function publishSetupMessages(client) {
   const channelEnvMap = {
-    bugReport: "BUG_REPORT_CHANNEL_ID",
     dataBug: "DATA_BUG_CHANNEL_ID",
     ticket: "TICKET_CHANNEL_ID",
     devBug: "DEV_BUG_CHANNEL_ID"
@@ -25,31 +24,9 @@ export async function publishSetupMessages(client) {
     channels[key] = channel;
   }
 
-  await sendBugReportMessage(channels.bugReport);
   await sendDataBugMessage(channels.dataBug);
   await sendDevBugMessage(channels.devBug);
   await sendTicketMessage(channels.ticket);
-}
-
-async function sendBugReportMessage(channel) {
-  await clearPreviousBotMessage(channel);
-
-  const bugEmbed = createCardEmbed({
-    title: "Bug Report",
-    description: "Found a UI or feature issue on TarkovTracker.org? Use the button below to open our web report form and file a GitHub issue.",
-    color: 0x25d6a2,
-    footer: "TarkovTracker Team"
-  });
-
-  const bugButton = new ButtonBuilder()
-    .setLabel("Create a report")
-    .setStyle(ButtonStyle.Link)
-    .setURL("https://issue.tarkovtracker.org");
-
-  await channel.send({
-    embeds: [bugEmbed],
-    components: [new ActionRowBuilder().addComponents(bugButton)]
-  });
 }
 
 async function sendDataBugMessage(channel) {
@@ -65,7 +42,7 @@ async function sendDataBugMessage(channel) {
   const dataBugButton = new ButtonBuilder()
     .setLabel("Data Bug Report")
     .setStyle(ButtonStyle.Link)
-    .setURL("https://issue.tarkovtracker.org/bug-report-data");
+    .setURL("https://localhost:3000/data");
 
   await channel.send({
     embeds: [dataBugEmbed],
@@ -86,7 +63,7 @@ async function sendDevBugMessage(channel) {
   const dataBugButton = new ButtonBuilder()
     .setLabel("Dev Bug Report")
     .setStyle(ButtonStyle.Link)
-    .setURL("https://issue.tarkovtracker.org/bug-report-dev");
+    .setURL("https://localhost:3000/issue");
 
   await channel.send({
     embeds: [dataBugEmbed],

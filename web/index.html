@@ -3,71 +3,34 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TarkovTracker – Bug Report</title>
+    <title>TarkovTracker - Issue Portal</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="page">
       <section class="card">
-        <span class="pill">Bug report</span>
-        <h1>Report a problem on TarkovTracker.org</h1>
+        <span class="pill">Dev issue</span>
+        <h1>Report a dev issue</h1>
         <p>
-          This form creates an issue on our GitHub tracker. Include enough detail so the team can reproduce the bug quickly.
-          Screenshots, affected browsers, and last actions before the bug are extremely helpful.
+          Use this form for dev.tarkovtracker.org or Nuxt app issues.
+          The report goes to the dev tracker for fast triage.
         </p>
-
-        <form id="issueForm">
-          <label for="title">Title *</label>
-          <input type="text" name="title" id="title" placeholder="What went wrong?" required />
-
-          <label for="discord">Discord handle *</label>
-          <input type="text" name="discord" id="discord" placeholder="Example#1234" required />
-
-          <label for="description">Description *</label>
-          <textarea name="description" id="description" placeholder="Steps to reproduce, expected result, assets, etc." required></textarea>
-
-          <div class="actions">
-            <button type="submit">Submit bug report</button>
-          </div>
-        </form>
-
-        <div id="issueStatus" class="status"></div>
+        <div class="actions">
+          <button type="button" onclick="location.href='/issue'">Open dev issue form</button>
+        </div>
       </section>
 
-      <section class="card stack">
-        <p><strong>Need to flag a data-only issue?</strong></p>
-        <p>Head over to the <a href="/bug-report-data/" style="color:#ffa26b;">data bug form</a> to route it directly to the overlay/data repository.</p>
+      <section class="card">
+        <span class="pill">Data issue</span>
+        <h1>Report a data issue</h1>
+        <p>
+          Use this form for overlay, item data, progression, or dataset problems.
+          Reports route straight to the data repository.
+        </p>
+        <div class="actions">
+          <button type="button" onclick="location.href='/data'">Open data report form</button>
+        </div>
       </section>
     </main>
-
-    <script>
-      const form = document.getElementById("issueForm");
-      const statusBox = document.getElementById("issueStatus");
-
-      function showStatus(message, isError = false) {
-        statusBox.textContent = message;
-        statusBox.className = isError ? "status error" : "status success";
-      }
-
-      form.addEventListener("submit", async event => {
-        event.preventDefault();
-        showStatus("Submitting...");
-        const payload = Object.fromEntries(new FormData(form).entries());
-
-        try {
-          const res = await fetch("/submit", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          if (!res.ok) throw new Error();
-          form.reset();
-          showStatus("Thank you! Your report reached the team.");
-        } catch (err) {
-          console.error(err);
-          showStatus("Unable to send the report. Please try again.", true);
-        }
-      });
-    </script>
   </body>
 </html>

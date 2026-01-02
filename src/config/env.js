@@ -1,6 +1,5 @@
 const requiredEnvVars = [
   "DISCORD_TOKEN",
-  "BUG_REPORT_CHANNEL_ID",
   "TICKET_CHANNEL_ID",
   "WELCOME_CHANNEL_ID",
   "DATA_BUG_CHANNEL_ID",

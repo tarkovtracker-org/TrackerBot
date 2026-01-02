@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TarkovTracker - Dev Issue Report</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card">
+        <span class="pill">Dev issue</span>
+        <h1>Help us fix dev.tarkovtracker.org</h1>
+        <p>
+          Help us maintain this repo: <code>TarkovTracker-org/TarkovTrackerNuxt</code>.
+        </p>
+
+        <form id="devIssueForm">
+          <label for="title">Title *</label>
+          <input type="text" name="title" id="title" placeholder="What went wrong?" required />
+
+          <label for="discord">Discord handle *</label>
+          <input type="text" name="discord" id="discord" placeholder="Example#1234" required />
+
+          <label for="description">Description *</label>
+          <textarea name="description" id="description" placeholder="Steps to reproduce, expected result, assets, etc." required></textarea>
+
+          <div class="actions">
+            <button type="submit">Submit dev issue</button>
+          </div>
+        </form>
+
+        <div id="issueStatus" class="status"></div>
+      </section>
+
+      <section class="card stack">
+        <p><strong>Need to report a data issue?</strong></p>
+        <p>Go to the <a href="/data" style="color:#ffa26b;">data report form</a> to reach the overlay/data repository.</p>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("devIssueForm");
+      const statusBox = document.getElementById("issueStatus");
+
+      function showStatus(message, isError = false) {
+        statusBox.textContent = message;
+        statusBox.className = isError ? "status error" : "status success";
+      }
+
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        showStatus("Submitting dev issue...");
+
+        const payload = Object.fromEntries(new FormData(form).entries());
+
+        try {
+          const res = await fetch("/issue", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) throw new Error();
+
+          form.reset();
+          showStatus("Thanks! Your dev issue is now tracked.");
+        } catch (err) {
+          console.error(err);
+          showStatus("Unable to send the dev issue. Please try again.", true);
+        }
+      });
+    </script>
+  </body>
+</html>
