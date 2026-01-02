@@ -8,9 +8,8 @@ import { createCardEmbed } from "../utils/cardEmbed.js";
 
 export async function publishSetupMessages(client) {
   const channelEnvMap = {
-    dataBug: "DATA_BUG_CHANNEL_ID",
-    ticket: "TICKET_CHANNEL_ID",
-    devBug: "DEV_BUG_CHANNEL_ID"
+    portal: "BUG_REPORT_CHANNEL_ID",
+    ticket: "TICKET_CHANNEL_ID"
   };
 
   const channels = {};
@@ -24,50 +23,28 @@ export async function publishSetupMessages(client) {
     channels[key] = channel;
   }
 
-  await sendDataBugMessage(channels.dataBug);
-  await sendDevBugMessage(channels.devBug);
+  await sendPortalMessage(channels.portal);
   await sendTicketMessage(channels.ticket);
 }
 
-async function sendDataBugMessage(channel) {
+async function sendPortalMessage(channel) {
   await clearPreviousBotMessage(channel);
 
-  const dataBugEmbed = createCardEmbed({
-    title: "Data Bug Report",
-    description: "Report problems that affect Tarkov data, overlays, or items directly. These posts route to the data repository so the telemetry team can fix them quickly.",
+  const portalEmbed = createCardEmbed({
+    title: "Issue Portal",
+    description: "Use the portal to report dev or data issues. Choose the right form and your report will be routed to the correct repository.",
     color: 0xff6b81,
     footer: "TarkovTracker Team"
   });
 
-  const dataBugButton = new ButtonBuilder()
-    .setLabel("Data Bug Report")
+  const portalButton = new ButtonBuilder()
+    .setLabel("Open issue portal")
     .setStyle(ButtonStyle.Link)
-    .setURL("https://localhost:3000/data");
+    .setURL("https://localhost:3000/");
 
   await channel.send({
-    embeds: [dataBugEmbed],
-    components: [new ActionRowBuilder().addComponents(dataBugButton)]
-  });
-}
-
-async function sendDevBugMessage(channel) {
-  await clearPreviousBotMessage(channel);
-
-  const dataBugEmbed = createCardEmbed({
-    title: "Dev Bug Report",
-    description: "Report problems that affect dev.tarkovtracker.org, the Nuxt version of TarkovTracker.",
-    color: 0xff6b81,
-    footer: "TarkovTracker Team"
-  });
-
-  const dataBugButton = new ButtonBuilder()
-    .setLabel("Dev Bug Report")
-    .setStyle(ButtonStyle.Link)
-    .setURL("https://localhost:3000/issue");
-
-  await channel.send({
-    embeds: [dataBugEmbed],
-    components: [new ActionRowBuilder().addComponents(dataBugButton)]
+    embeds: [portalEmbed],
+    components: [new ActionRowBuilder().addComponents(portalButton)]
   });
 }
 

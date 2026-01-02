@@ -20,7 +20,7 @@ Copy `.env.example` to `.env` and fill in every value:
 
 - Discord bot basics: `DISCORD_TOKEN`, `GUILD_ID`
 - GitHub issue routing: `GITHUB_TOKEN`, `REPO_DEV`, `REPO_DATA_REPORT`
-- Channel IDs for the automated posts: `DATA_BUG_CHANNEL_ID`, `DEV_BUG_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
+- Channel IDs for the automated posts: `BUG_REPORT_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
 - Admin panel OAuth: `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, `PANEL_ADMIN_ROLE_ID`, `ADMIN_PANEL_PORT`
 - Web server port overrides: `PORT`
 
@@ -45,7 +45,7 @@ npm run start:admin # Admin panel (http://localhost:4001)
 ```
 
 - Bot login success is logged as soon as Discord authenticates the token.
-- `webserver.js` serves `http://localhost:3000/issue` (dev issue form) and `http://localhost:3000/data` (data issue form).
+- `webserver.js` serves `http://localhost:3000` (issue portal), plus `http://localhost:3000/issue` and `http://localhost:3000/data` (forms).
 - `adminserver.js` requires Discord OAuth with the `PANEL_ADMIN_ROLE_ID`.
 
 ## 4. Optional: run the bot with PM2
