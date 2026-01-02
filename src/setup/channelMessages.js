@@ -40,7 +40,7 @@ async function sendPortalMessage(channel) {
   const portalButton = new ButtonBuilder()
     .setLabel("Open issue portal")
     .setStyle(ButtonStyle.Link)
-    .setURL("https://localhost:3000/");
+    .setURL("https://issue.tarkovtracker.org/");
 
   await channel.send({
     embeds: [portalEmbed],
