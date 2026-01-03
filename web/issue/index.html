@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TarkovTracker - Dev Issue Report</title>
+    <title>TarkovTracker - Website Issue Report</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="page">
       <section class="card">
-        <span class="pill">Dev issue</span>
-        <h1>Help us fix dev.tarkovtracker.org</h1>
+        <span class="pill">Website issue</span>
+        <h1>Help us fix TarkovTracker.org</h1>
         <p>
-          Help us maintain this repo: <code>TarkovTracker-org/TarkovTrackerNuxt</code>.
+          Help us maintain this repo: <code>TarkovTracker-org/TarkovTracker</code>.
         </p>
 
         <form id="devIssueForm">
@@ -26,7 +26,7 @@
           <textarea name="description" id="description" placeholder="Steps to reproduce, expected result, assets, etc." required></textarea>
 
           <div class="actions">
-            <button type="submit">Submit dev issue</button>
+            <button type="submit">Submit website issue</button>
           </div>
         </form>
 
@@ -35,7 +35,7 @@
 
       <section class="card stack">
         <p><strong>Need to report a data issue?</strong></p>
-        <p>Go to the <a href="/data" style="color:#ffa26b;">data report form</a> to reach the overlay/data repository.</p>
+        <p>Go to the <a href="/data" style="color:#ffa26b;">.</p>
       </section>
     </main>
 
@@ -64,10 +64,10 @@
           if (!res.ok) throw new Error();
 
           form.reset();
-          showStatus("Thanks! Your dev issue is now tracked.");
+          showStatus("Thanks! Your website issue is now tracked.");
         } catch (err) {
           console.error(err);
-          showStatus("Unable to send the dev issue. Please try again.", true);
+          showStatus("Unable to send the website issue. Please try again.", true);
         }
       });
     </script>
