@@ -32,7 +32,7 @@ async function sendPortalMessage(channel) {
 
   const portalEmbed = createCardEmbed({
     title: "Issue Portal",
-    description: "Use the portal to report dev or data issues. Choose the right form and your report will be routed to the correct repository.",
+    description: "Use the portal to report website or data issues. Choose the right form and your report will be routed to the correct form.",
     color: 0xff6b81,
     footer: "TarkovTracker Team"
   });
