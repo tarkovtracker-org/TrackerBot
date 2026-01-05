@@ -3,7 +3,6 @@ import { Events } from "discord.js";
 import { createClient } from "./src/client/createClient.js";
 import { ensureEnvVars } from "./src/config/env.js";
 import { registerSlashCommands } from "./src/commands/registerSlashCommands.js";
-import { publishSetupMessages } from "./src/setup/channelMessages.js";
 import { registerInteractionHandler } from "./src/handlers/interactionHandler.js";
 import { registerMemberHandlers } from "./src/handlers/memberHandlers.js";
 
