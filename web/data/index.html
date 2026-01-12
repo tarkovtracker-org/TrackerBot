@@ -9,19 +9,23 @@
   <body>
     <main class="page">
       <section class="card">
-        <span class="pill">Data issue</span>
-        <h1>Help us fix Tarkov data and overlay issues</h1>
+        <span class="pill">Data Issue</span>
+        <h1>Report TarkovTracker Data Issues</h1>
         <p>
-          Use this form when an in-game data source, overlay, or progression dataset looks wrong.
-          Reports here are filed straight into <code>TarkovTracker-org/tarkov-data-overlay</code>.
+          Use this form when quest data, item stats, maps, or other in-app datasets look wrong.
+          <br /><br />
+          Reports here are for TarkovTracker data only and are filed straight into the
+          <a href="https://github.com/tarkovtracker-org/tarkov-data-overlay">TarkovTracker Github</a>.
+          <br /><br />
+          Please include a short summary, your Discord handle, the impacted data, any reference links, and the correct value or details.
         </p>
 
         <form id="dataIssueForm">
           <label for="title">Title *</label>
-          <input type="text" name="title" id="title" placeholder="Example: Wrong barter data for item" required />
+          <input type="text" name="title" id="title" placeholder="Quest Name - Issue" required />
 
           <label for="discord">Discord handle *</label>
-          <input type="text" name="discord" id="discord" placeholder="Example#1234" required />
+          <input type="text" name="discord" id="discord" placeholder="Username#1234" required />
 
           <label for="category">Impacted area *</label>
           <select name="category" id="category" required>
@@ -35,13 +39,13 @@
           </select>
 
           <label for="reference">Reference link (optional)</label>
-          <input type="text" name="reference" id="reference" placeholder="Paste a screenshot link, wiki entry, etc." />
+          <input type="text" name="reference" id="reference" placeholder="Link to a source or screenshot (optional)" />
 
           <label for="description">Details *</label>
-          <textarea name="description" id="description" placeholder="Explain what is wrong, what should be shown instead, and how you verified it." required></textarea>
+          <textarea name="description" id="description" placeholder="Describe what is wrong, the correct value, and how it was verified." required></textarea>
 
           <div class="actions">
-            <button type="submit">Submit data issue</button>
+          <button type="submit">Submit Data Issue</button>
           </div>
         </form>
 
@@ -49,8 +53,11 @@
       </section>
 
       <section class="card stack">
-        <p><strong>Need to report a dev issue?</strong></p>
-        <p>Return to the <a href="/issue" style="color:#ffa26b;">dev issue form</a> for Nuxt app reports.</p>
+        <p><strong>Need to Report a Website Issue?</strong></p>
+        <p>Use this for bugs with the TarkovTracker website or app.</p>
+        <div class="actions">
+          <button type="button" onclick="location.href='/issue'">Open Website Issue Form</button>
+        </div>
       </section>
     </main>
 
