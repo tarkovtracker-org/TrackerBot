@@ -57,6 +57,39 @@
     <script>
       const form = document.getElementById("dataIssueForm");
       const statusBox = document.getElementById("dataStatus");
+      const params = new URLSearchParams(window.location.search);
+      const getParam = (key, { trim = true } = {}) => {
+        const value = params.get(key);
+        if (value == null) return "";
+        return trim ? value.trim() : value;
+      };
+
+      const titleParam = getParam("title");
+      const categoryParam = getParam("category");
+      const referenceParam = getParam("reference");
+      const descriptionParam = getParam("description", { trim: false });
+
+      if (titleParam) {
+        const titleInput = document.getElementById("title");
+        if (titleInput) titleInput.value = titleParam;
+      }
+      if (categoryParam) {
+        const categorySelect = document.getElementById("category");
+        if (categorySelect) {
+          const hasOption = Array.from(categorySelect.options).some(
+            (option) => option.value === categoryParam
+          );
+          if (hasOption) categorySelect.value = categoryParam;
+        }
+      }
+      if (referenceParam) {
+        const referenceInput = document.getElementById("reference");
+        if (referenceInput) referenceInput.value = referenceParam;
+      }
+      if (descriptionParam) {
+        const descriptionInput = document.getElementById("description");
+        if (descriptionInput) descriptionInput.value = descriptionParam;
+      }
 
       function showStatus(message, isError = false) {
         statusBox.textContent = message;
