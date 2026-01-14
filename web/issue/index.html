@@ -9,24 +9,30 @@
   <body>
     <main class="page">
       <section class="card">
-        <span class="pill">Website issue</span>
-        <h1>Help us fix TarkovTracker.org</h1>
+        <span class="pill">Website Issue</span>
+        <h1>Report TarkovTracker App Issues</h1>
         <p>
-          Help us maintain this repo: <code>TarkovTracker-org/TarkovTracker</code>.
+          Report bugs with the TarkovTracker website experience.
+          We can only address issues within TarkovTracker itself.
+          <br /><br />
+          Reports here help us maintain <a href="https://github.com/tarkovtracker-org/TarkovTracker">TarkovTracker</a>.
+          <br /><br />
+          Please include a short summary, your Discord handle, and a clear description
+          with steps to reproduce, expected result, and actual result.
         </p>
 
         <form id="devIssueForm">
           <label for="title">Title *</label>
-          <input type="text" name="title" id="title" placeholder="What went wrong?" required />
+          <input type="text" name="title" id="title" placeholder="Issue Title" required />
 
           <label for="discord">Discord handle *</label>
-          <input type="text" name="discord" id="discord" placeholder="Example#1234" required />
+          <input type="text" name="discord" id="discord" placeholder="Username#1234" required />
 
           <label for="description">Description *</label>
-          <textarea name="description" id="description" placeholder="Steps to reproduce, expected result, assets, etc." required></textarea>
+          <textarea name="description" id="description" placeholder="Short summary of the issue, steps to reproduce, expected result, actual result, and any relevant links." required></textarea>
 
           <div class="actions">
-            <button type="submit">Submit website issue</button>
+            <button type="submit">Submit Website Issue</button>
           </div>
         </form>
 
@@ -34,8 +40,11 @@
       </section>
 
       <section class="card stack">
-        <p><strong>Need to report a data issue?</strong></p>
-        <p>Go to the <a href="/data" style="color:#ffa26b;">.</p>
+        <p><strong>Need to Report a Data Issue?</strong></p>
+        <p>Use this for quest data or other in-app dataset problems.</p>
+        <div class="actions">
+          <button type="button" onclick="location.href='/data'">Open Data Report Form</button>
+        </div>
       </section>
     </main>
 

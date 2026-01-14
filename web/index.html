@@ -9,25 +9,65 @@
   <body>
     <main class="page">
       <section class="card">
-        <span class="pill">Website issue</span>
-        <h1>Report a website issue</h1>
+        <span class="pill">Website Issue</span>
+        <h1>Report a Website Issue</h1>
         <p>
-          Use this form for tarkovtracker.org app issues.
+          Use this form for bugs with the TarkovTracker website.
+          <br /><br />
+          Reports here are for issues within TarkovTracker itself.
         </p>
         <div class="actions">
-          <button type="button" onclick="location.href='/issue'">Open website issue form</button>
+          <button type="button" onclick="location.href='/issue'">Open Website Issue Form</button>
         </div>
       </section>
 
       <section class="card">
-        <span class="pill">Data issue</span>
-        <h1>Report a data issue</h1>
+        <span class="pill">Data Issue</span>
+        <h1>Report a Data Issue</h1>
         <p>
-          Use this form for overlay, item data, progression, or dataset problems.
-          Reports route straight to the data repository.
+          Use this form for incorrect quest data, item stats, maps, or other in-app datasets.
+          <br /><br />
+          Reports here are for TarkovTracker data only.
         </p>
         <div class="actions">
-          <button type="button" onclick="location.href='/data'">Open data report form</button>
+          <button type="button" onclick="location.href='/data'">Open Data Report Form</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <span class="pill">Quick Links</span>
+        <h1>Need Something Else?</h1>
+        <p>
+          Jump straight to the TarkovTracker app, the Discord server, or the main repo.
+        </p>
+        <div class="actions stack">
+          <button
+            type="button"
+            class="btn-solid"
+            aria-label="Open the TarkovTracker app (opens in new tab)"
+            title="Opens in a new tab"
+            onclick="window.open('https://tarkovtracker.org/','_blank','noopener,noreferrer')"
+          >
+            Open the TarkovTracker App
+          </button>
+          <button
+            type="button"
+            class="btn-solid"
+            aria-label="Join the TarkovTracker Discord server (opens in new tab)"
+            title="Opens in a new tab"
+            onclick="window.open('https://discord.com/invite/M8nBgA2sT6','_blank','noopener,noreferrer')"
+          >
+            Join the Discord Server
+          </button>
+          <button
+            type="button"
+            class="btn-solid"
+            aria-label="View the TarkovTracker GitHub repo (opens in new tab)"
+            title="Opens in a new tab"
+            onclick="window.open('https://github.com/tarkovtracker-org/TarkovTracker','_blank','noopener,noreferrer')"
+          >
+            View the GitHub Repo
+          </button>
         </div>
       </section>
     </main>
