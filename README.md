@@ -62,3 +62,7 @@ pm2 startup
 - Use `deploy-test.sh` or `deploy-prod.sh` as references for installing dependencies and restarting the PM2 processes on servers.
 - The bot registers global slash commands on startup. When adding commands, allow up to one hour for Discord to propagate them globally.
 - When rotating credentials, restart all services so environment variables are reloaded.
+
+## License
+
+See [LICENSE](LICENSE)
