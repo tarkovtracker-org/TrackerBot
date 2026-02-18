@@ -22,7 +22,8 @@ async function assignJoinRoles(member) {
   const autoRoleIds = [
     getRequiredEnv("AUTO_ROLE_ID_1"),
     getRequiredEnv("AUTO_ROLE_ID_2"),
-    getRequiredEnv("AUTO_ROLE_ID_3")
+    getRequiredEnv("AUTO_ROLE_ID_3"),
+    getRequiredEnv("AUTO_ROLE_ID_4")
   ];
 
   try {
