@@ -18,7 +18,10 @@ const slashCommands = [
     .setDescription("Post the update-in-progress notice"),
   new SlashCommandBuilder()
     .setName("archive")
-    .setDescription("Archive this channel and move it to Archive")
+    .setDescription("Archive this channel and move it to Archive"),
+  new SlashCommandBuilder()
+    .setName("put-member-role")
+    .setDescription("Add AUTO_ROLE_ID_4 to all members who don't have it (Admin only)")
 ];
 
 const slashCommandData = slashCommands.map(command => command.toJSON());
