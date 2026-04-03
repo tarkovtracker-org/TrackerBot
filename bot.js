@@ -19,13 +19,6 @@ client.once(Events.ClientReady, async () => {
   } catch (err) {
     console.error("Failed to register slash commands:", err);
   }
-
-  try {
-    await publishSetupMessages(client);
-    console.log("Setup messages published.");
-  } catch (err) {
-    console.error("Failed to publish setup messages:", err);
-  }
 });
 
 registerInteractionHandler(client);
