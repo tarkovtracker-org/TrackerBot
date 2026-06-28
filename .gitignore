@@ -20,7 +20,3 @@ pids/
 tmp/
 temp/
 
-# GitHub Actions workflow folder ?
-# Non, tu NE dois PAS ignorer .github
-# car sinon le workflow ne sera jamais versionné
-# donc laisse .github dans le repo
