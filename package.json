@@ -8,22 +8,21 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start:bot": "node bot.js",
     "start:web": "node webserver.js",
-    "start:admin": "node adminserver.js",
-    "start": "concurrently -n bot,web,admin \"npm:start:bot\" \"npm:start:web\" \"npm:start:admin\"",
-    "deploy:test": "bash deploy-test.sh",
-    "deploy:prod": "bash deploy-prod.sh",
-    "deploy-test": "bash deploy-test.sh",
-    "deploy-prod": "bash deploy-prod.sh"
+    "start": "concurrently -n bot,web \"npm:start:bot\" \"npm:start:web\""
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
-    "axios": "^1.13.1",
-    "discord.js": "^14.24.1",
+    "axios": "^1.13.2",
+    "discord.js": "^14.26.4",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "multer": "^2.0.2"
+    "multer": "^2.1.0"
+  },
+  "overrides": {
+    "undici": "^6.27.0",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

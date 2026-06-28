@@ -3,71 +3,73 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TarkovTracker – Bug Report</title>
+    <title>TarkovTracker - Issue Portal</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="page">
       <section class="card">
-        <span class="pill">Bug report</span>
-        <h1>Report a problem on TarkovTracker.org</h1>
+        <span class="pill">Website Issue</span>
+        <h1>Report a Website Issue</h1>
         <p>
-          This form creates an issue on our GitHub tracker. Include enough detail so the team can reproduce the bug quickly.
-          Screenshots, affected browsers, and last actions before the bug are extremely helpful.
+          Use this form for bugs with the TarkovTracker website.
+          <br /><br />
+          Reports here are for issues within TarkovTracker itself.
         </p>
-
-        <form id="issueForm">
-          <label for="title">Title *</label>
-          <input type="text" name="title" id="title" placeholder="What went wrong?" required />
-
-          <label for="discord">Discord handle *</label>
-          <input type="text" name="discord" id="discord" placeholder="Example#1234" required />
-
-          <label for="description">Description *</label>
-          <textarea name="description" id="description" placeholder="Steps to reproduce, expected result, assets, etc." required></textarea>
-
-          <div class="actions">
-            <button type="submit">Submit bug report</button>
-          </div>
-        </form>
-
-        <div id="issueStatus" class="status"></div>
+        <div class="actions">
+          <button type="button" onclick="location.href='/issue'">Open Website Issue Form</button>
+        </div>
       </section>
 
-      <section class="card stack">
-        <p><strong>Need to flag a data-only issue?</strong></p>
-        <p>Head over to the <a href="/bug-report-data/" style="color:#ffa26b;">data bug form</a> to route it directly to the overlay/data repository.</p>
+      <section class="card">
+        <span class="pill">Data Issue</span>
+        <h1>Report a Data Issue</h1>
+        <p>
+          Use this form for incorrect quest data, item stats, maps, or other in-app datasets.
+          <br /><br />
+          Reports here are for TarkovTracker data only.
+        </p>
+        <div class="actions">
+          <button type="button" onclick="location.href='/data'">Open Data Report Form</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <span class="pill">Quick Links</span>
+        <h1>Need Something Else?</h1>
+        <p>
+          Jump straight to the TarkovTracker app, the Discord server, or the main repo.
+        </p>
+        <div class="actions stack">
+          <button
+            type="button"
+            class="btn-solid"
+            aria-label="Open the TarkovTracker app (opens in new tab)"
+            title="Opens in a new tab"
+            onclick="window.open('https://tarkovtracker.org/','_blank','noopener,noreferrer')"
+          >
+            Open the TarkovTracker App
+          </button>
+          <button
+            type="button"
+            class="btn-solid"
+            aria-label="Join the TarkovTracker Discord server (opens in new tab)"
+            title="Opens in a new tab"
+            onclick="window.open('https://discord.com/invite/M8nBgA2sT6','_blank','noopener,noreferrer')"
+          >
+            Join the Discord Server
+          </button>
+          <button
+            type="button"
+            class="btn-solid"
+            aria-label="View the TarkovTracker GitHub repo (opens in new tab)"
+            title="Opens in a new tab"
+            onclick="window.open('https://github.com/tarkovtracker-org/TarkovTracker','_blank','noopener,noreferrer')"
+          >
+            View the GitHub Repo
+          </button>
+        </div>
       </section>
     </main>
-
-    <script>
-      const form = document.getElementById("issueForm");
-      const statusBox = document.getElementById("issueStatus");
-
-      function showStatus(message, isError = false) {
-        statusBox.textContent = message;
-        statusBox.className = isError ? "status error" : "status success";
-      }
-
-      form.addEventListener("submit", async event => {
-        event.preventDefault();
-        showStatus("Submitting...");
-        const payload = Object.fromEntries(new FormData(form).entries());
-
-        try {
-          const res = await fetch("/submit", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          if (!res.ok) throw new Error();
-          form.reset();
-          showStatus("Thank you! Your report reached the team.");
-        } catch (err) {
-          console.error(err);
-          showStatus("Unable to send the report. Please try again.", true);
-        }
-      });
-    </script>
   </body>
 </html>

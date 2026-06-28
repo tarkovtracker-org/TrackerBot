@@ -1,15 +1,18 @@
 :root {
   font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color-scheme: dark;
-  --bg: radial-gradient(circle at 20% 20%, #1c253a, #06080f 60%);
-  --panel: rgba(20, 24, 38, 0.92);
-  --border: rgba(255, 255, 255, 0.08);
-  --accent: #ff6b81;
-  --accent-2: #ffa26b;
-  --text: #f7f8fc;
-  --muted: rgba(247, 248, 252, 0.75);
-  --radius: 20px;
-  --shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+  --bg: radial-gradient(circle at 25% 15%, #1a1c19, #0a0b08 65%);
+  --panel: rgba(24, 25, 21, 0.94);
+  --panel-2: rgba(33, 35, 29, 0.6);
+  --border: rgba(199, 184, 138, 0.14);
+  --border-strong: rgba(199, 184, 138, 0.3);
+  --accent: #c7a45a;
+  --accent-2: #e0c279;
+  --accent-soft: rgba(199, 164, 90, 0.14);
+  --text: #ece9df;
+  --muted: rgba(236, 233, 223, 0.62);
+  --radius: 10px;
+  --shadow: 0 24px 55px rgba(0, 0, 0, 0.55);
 }
 
 *,
@@ -22,6 +25,7 @@ body {
   margin: 0;
   min-height: 100vh;
   background: var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   display: flex;
   justify-content: center;
@@ -34,40 +38,70 @@ body {
 }
 
 .card {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: clamp(28px, 5vw, 40px);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(12px);
   animation: fadeIn 0.35s ease;
+  overflow: hidden;
+}
+
+/* Thin gold top accent line, EFT-style framing */
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.7;
 }
 
 .card + .card {
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  padding: 5px 14px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border-strong);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.78rem;
-  color: var(--muted);
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent-2);
 }
 
 h1 {
   margin: 16px 0 8px;
-  font-size: clamp(1.8rem, 4vw, 2.4rem);
+  font-size: clamp(1.7rem, 4vw, 2.2rem);
+  letter-spacing: 0.01em;
+  color: var(--text);
 }
 
 p {
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--muted);
+}
+
+a {
+  color: var(--accent-2);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(199, 164, 90, 0.35);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+a:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 form {
@@ -78,21 +112,25 @@ label {
   display: block;
   margin-top: 18px;
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
 }
 
 input,
 textarea,
 select {
   width: 100%;
-  margin-top: 10px;
+  margin-top: 9px;
   padding: 13px 14px;
-  border-radius: 14px;
+  border-radius: 6px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--panel-2);
   color: var(--text);
   font-size: 1rem;
-  transition: border 0.2s ease, box-shadow 0.2s ease;
+  font-family: inherit;
+  transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 textarea {
@@ -100,11 +138,17 @@ textarea {
   min-height: 140px;
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: rgba(236, 233, 223, 0.35);
+}
+
 input:focus,
 textarea:focus,
 select:focus {
   border-color: var(--accent);
   outline: none;
+  background: rgba(33, 35, 29, 0.85);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
@@ -115,27 +159,44 @@ select:focus {
 button {
   width: 100%;
   padding: 14px 18px;
-  border-radius: 999px;
-  border: none;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  font-size: 1rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.92rem;
+  font-family: inherit;
   cursor: pointer;
   background: linear-gradient(120deg, var(--accent), var(--accent-2));
-  color: #fff;
-  box-shadow: 0 15px 30px rgba(255, 107, 129, 0.3);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  color: #1a160c;
+  box-shadow: 0 12px 26px rgba(199, 164, 90, 0.22);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
 
 button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 25px 40px rgba(255, 107, 129, 0.35);
+  filter: brightness(1.06);
+  box-shadow: 0 18px 34px rgba(199, 164, 90, 0.3);
+}
+
+button.btn-solid {
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  box-shadow: none;
+}
+
+button.btn-solid:hover {
+  filter: none;
+  border-color: var(--accent);
+  color: var(--accent-2);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
 }
 
 .status {
   margin-top: 22px;
   padding: 13px 16px;
-  border-radius: 14px;
+  border-radius: 6px;
   font-weight: 600;
   text-align: center;
   display: none;
@@ -143,16 +204,16 @@ button:hover {
 
 .status.success {
   display: block;
-  background: rgba(74, 222, 128, 0.1);
-  border: 1px solid rgba(74, 222, 128, 0.4);
-  color: #bbf7d0;
+  background: rgba(141, 168, 86, 0.12);
+  border: 1px solid rgba(141, 168, 86, 0.45);
+  color: #c8dca0;
 }
 
 .status.error {
   display: block;
-  background: rgba(248, 113, 113, 0.12);
-  border: 1px solid rgba(248, 113, 113, 0.4);
-  color: #fecaca;
+  background: rgba(190, 90, 78, 0.14);
+  border: 1px solid rgba(190, 90, 78, 0.45);
+  color: #e9b3aa;
 }
 
 .stack {

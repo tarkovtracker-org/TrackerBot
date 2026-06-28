@@ -1,12 +1,11 @@
 import { Events } from "discord.js";
 import { getRequiredEnv } from "../config/env.js";
-import { createCardEmbed } from "../utils/cardEmbed.js";
 
 const welcomeMessages = new Map();
 
 export function registerMemberHandlers(client) {
   client.on(Events.GuildMemberAdd, async member => {
-    await assignUserRole(member);
+    await assignJoinRoles(member);
     await sendWelcomeMessage(member);
   });
 
@@ -15,17 +14,38 @@ export function registerMemberHandlers(client) {
   });
 }
 
-async function assignUserRole(member) {
+async function assignJoinRoles(member) {
   const userRole = member.guild.roles.cache.find(
     role => role.name.toLowerCase() === "user"
   );
 
-  if (!userRole) return;
+  const autoRoleIds = [
+    getRequiredEnv("AUTO_ROLE_ID_1"),
+    getRequiredEnv("AUTO_ROLE_ID_2"),
+    getRequiredEnv("AUTO_ROLE_ID_3"),
+    getRequiredEnv("AUTO_ROLE_ID_4")
+  ];
 
   try {
-    await member.roles.add(userRole);
+    const rolesToAdd = new Set();
+
+    if (userRole) {
+      rolesToAdd.add(userRole);
+    }
+
+    for (const roleId of autoRoleIds) {
+      const role = member.guild.roles.cache.get(roleId);
+      if (role) {
+        rolesToAdd.add(role);
+      } else {
+        console.warn(`Auto-role not found in guild: ${roleId}`);
+      }
+    }
+
+    if (rolesToAdd.size === 0) return;
+    await member.roles.add([...rolesToAdd]);
   } catch (err) {
-    console.error("Error assigning user role:", err);
+    console.error("Error assigning join roles:", err);
   }
 }
 
@@ -34,15 +54,9 @@ async function sendWelcomeMessage(member) {
   const channel = member.guild.channels.cache.get(channelId);
   if (!channel?.isTextBased()) return;
 
-  const message = await channel.send({
-    embeds: [
-      createCardEmbed({
-        title: "Welcome to TarkovTracker.org",
-        description: `Hey ${member}! Grab notification roles in the designated channel and let us know if you need help.`,
-        color: 0x7f8cff
-      })
-    ]
-  });
+  const message = await channel.send(
+    `Welcome to the **TarkovTracker.org** Discord server ${member}.`
+  );
 
   welcomeMessages.set(member.id, message.id);
 }

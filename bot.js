@@ -3,7 +3,6 @@ import { Events } from "discord.js";
 import { createClient } from "./src/client/createClient.js";
 import { ensureEnvVars } from "./src/config/env.js";
 import { registerSlashCommands } from "./src/commands/registerSlashCommands.js";
-import { publishSetupMessages } from "./src/setup/channelMessages.js";
 import { registerInteractionHandler } from "./src/handlers/interactionHandler.js";
 import { registerMemberHandlers } from "./src/handlers/memberHandlers.js";
 
@@ -19,13 +18,6 @@ client.once(Events.ClientReady, async () => {
     console.log("Slash commands registered.");
   } catch (err) {
     console.error("Failed to register slash commands:", err);
-  }
-
-  try {
-    await publishSetupMessages(client);
-    console.log("Setup messages published.");
-  } catch (err) {
-    console.error("Failed to publish setup messages:", err);
   }
 });
 

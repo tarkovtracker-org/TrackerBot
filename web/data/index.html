@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TarkovTracker - Data Issue Report</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card">
+        <span class="pill">Data Issue</span>
+        <h1>Report TarkovTracker Data Issues</h1>
+        <p>
+          Use this form when quest data, item stats, maps, or other in-app datasets look wrong.
+          <br /><br />
+          Reports here are for TarkovTracker data only and are filed straight into the
+          <a href="https://github.com/tarkovtracker-org/tarkov-data-overlay">TarkovTracker GitHub</a>.
+          <br /><br />
+          Please include a short summary, your Discord handle, the impacted data, any reference links, and the correct value or details.
+        </p>
+
+        <form id="dataIssueForm">
+          <label for="title">Title *</label>
+          <input type="text" name="title" id="title" placeholder="Quest Name - Issue" required />
+
+          <label for="discord">Discord handle *</label>
+          <input type="text" name="discord" id="discord" placeholder="Username#1234" required />
+
+          <label for="category">Impacted area *</label>
+          <select name="category" id="category" required>
+            <option value="">Select an area</option>
+            <option value="Overlay - Items">Overlay - Items</option>
+            <option value="Overlay - Maps">Overlay - Maps</option>
+            <option value="Overlay - Quests">Overlay - Quests</option>
+            <option value="Website - Progression data">Website - Progression data</option>
+            <option value="Website - Market data">Website - Market data</option>
+            <option value="Other">Other</option>
+          </select>
+
+          <label for="reference">Reference link (optional)</label>
+          <input type="text" name="reference" id="reference" placeholder="Link to a source or screenshot (optional)" />
+
+          <label for="description">Details *</label>
+          <textarea name="description" id="description" placeholder="Describe what is wrong, the correct value, and how it was verified." required></textarea>
+
+          <div class="actions">
+            <button type="submit">Submit Data Issue</button>
+          </div>
+        </form>
+
+        <div id="dataStatus" class="status"></div>
+      </section>
+
+      <section class="card stack">
+        <p><strong>Need to Report a Website Issue?</strong></p>
+        <p>Use this for bugs with the TarkovTracker website or app.</p>
+        <div class="actions">
+          <button type="button" onclick="location.href='/issue'">Open Website Issue Form</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("dataIssueForm");
+      const statusBox = document.getElementById("dataStatus");
+      const params = new URLSearchParams(window.location.search);
+      const getParam = (key, { trim = true } = {}) => {
+        const value = params.get(key);
+        if (value == null) return "";
+        return trim ? value.trim() : value;
+      };
+
+      const titleParam = getParam("title");
+      const categoryParam = getParam("category");
+      const referenceParam = getParam("reference");
+      const descriptionParam = getParam("description", { trim: false });
+
+      if (titleParam) {
+        const titleInput = document.getElementById("title");
+        if (titleInput) titleInput.value = titleParam;
+      }
+      if (categoryParam) {
+        const categorySelect = document.getElementById("category");
+        if (categorySelect) {
+          const hasOption = Array.from(categorySelect.options).some(
+            (option) => option.value === categoryParam
+          );
+          if (hasOption) categorySelect.value = categoryParam;
+        }
+      }
+      if (referenceParam) {
+        const referenceInput = document.getElementById("reference");
+        if (referenceInput) referenceInput.value = referenceParam;
+      }
+      if (descriptionParam) {
+        const descriptionInput = document.getElementById("description");
+        if (descriptionInput) descriptionInput.value = descriptionParam;
+      }
+
+      function showStatus(message, isError = false) {
+        statusBox.textContent = message;
+        statusBox.className = isError ? "status error" : "status success";
+      }
+
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        showStatus("Submitting data issue...");
+        const payload = Object.fromEntries(new FormData(form).entries());
+
+        try {
+          const res = await fetch("/data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) throw new Error();
+          form.reset();
+          showStatus("Thanks! Your data report is now tracked.");
+        } catch (err) {
+          console.error(err);
+          showStatus("Unable to send the data report. Please try again.", true);
+        }
+      });
+    </script>
+  </body>
+</html>

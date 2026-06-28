@@ -1,64 +1,107 @@
-# TrackerBot
+<div align="center">
 
-TrackerBot runs three services:
+<table border="0"><tr>
+<td valign="middle"><img src="https://tarkovtracker.org/img/logos/tarkovtrackerlogo-light.webp" alt="TarkovTracker logo" width="120" /></td>
+<td valign="middle"><h1>TrackerBot</h1></td>
+</tr></table>
 
-1. **Discord bot (`bot.js`)** – handles slash commands, reaction roles, welcome automation, and ticket creation.
-2. **Bug intake web server (`webserver.js`)** – serves the public bug-report forms and forwards submissions to GitHub.
-3. **Admin panel (`adminserver.js`)** – secured dashboard for Discord admins to push embeds and reaction-role cards.
+The Discord companion for the [TarkovTracker.org](https://tarkovtracker.org) community: slash commands, reaction roles, welcome automation, ticket creation, and a public bug-intake portal that forwards reports straight to GitHub.
 
-The bot requires Node.js 18+.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![discord.js](https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white)](https://discord.js.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/tarkovtracker-org/trackerbot/pulls)
+</div>
 
-## 1. Install dependencies
+## Overview
+
+TrackerBot runs two services side by side:
+
+| Service | Entry point | Responsibility |
+| --- | --- | --- |
+| **Discord bot** | `bot.js` | Slash commands, reaction roles, welcome automation, and ticket creation. |
+| **Bug intake web server** | `webserver.js` | Serves the public issue forms and forwards submissions to GitHub. |
+
+Requires **Node.js 18+**.
+
+## Features
+
+- Ticket creation flow with private support channels
+- Reaction-role assignment and a `put-member-role` bulk role command
+- Automated welcome messages and auto-roles for new members
+- Quick announcement helpers (`/message`, `/faq1`, `/utd`)
+- One-command channel archiving (`/archive`)
+- Public web forms that open GitHub issues for bug and data reports
+
+## Getting started
+
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-## 2. Configure environment variables
+### 2. Configure environment variables
 
 Copy `.env.example` to `.env` and fill in every value:
 
-- Discord bot basics: `DISCORD_TOKEN`, `GUILD_ID`
-- GitHub issue routing: `GITHUB_TOKEN`, `REPO_TARKOVTRACKER`, `REPO_DATA_REPORT`
-- Channel IDs for the automated posts: `BUG_REPORT_CHANNEL_ID`, `DATA_BUG_CHANNEL_ID`, `ROLE_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
-- Admin panel OAuth: `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, `PANEL_ADMIN_ROLE_ID`, `ADMIN_PANEL_PORT`
-- Web server port overrides: `PORT`
+- **Discord bot basics:** `DISCORD_TOKEN`, `GUILD_ID`
+- **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV`, `REPO_DATA_REPORT`
+- **Channel IDs for automated posts:** `BUG_REPORT_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
+- **Web server port override:** `PORT`
 
-> Tip: `GITHUB_TOKEN` needs `repo` scope (or equivalent granular access) to create issues in the configured repositories.
+> `GITHUB_TOKEN` needs `repo` scope (or equivalent granular access) to create issues in the configured repositories.
 
-## 3. Run the services locally
+### 3. Run the services locally
 
-### Quick start (all services)
+Start everything at once:
 
 ```bash
 npm start
 ```
 
-This launches the bot, bug-report web server, and admin panel in parallel. Logs for each service are prefixed with `bot`, `web`, or `admin`.
+This launches the bot and issue intake web server in parallel. Logs for each service are prefixed with `bot` or `web`.
 
-### Run services individually
+Or run a single service:
 
 ```bash
 npm run start:bot   # Discord bot
-npm run start:web   # Public bug-report forms (http://localhost:3000)
-npm run start:admin # Admin panel (http://localhost:4001)
+npm run start:web   # Public issue forms (http://localhost:3000)
 ```
 
 - Bot login success is logged as soon as Discord authenticates the token.
-- `webserver.js` serves `http://localhost:3000` (main bug form) and `http://localhost:3000/bug-report-data/` (data-specific reports).
-- `adminserver.js` requires Discord OAuth with the `PANEL_ADMIN_ROLE_ID`.
+- `webserver.js` serves `http://localhost:3000` (issue portal), plus `http://localhost:3000/issue` and `http://localhost:3000/data` (forms).
 
-## 4. Optional: run the bot with PM2
+## Slash commands
 
-```bash
-npm install -g pm2
-pm2 start bot.js --name TrackerBot
-pm2 save
-pm2 startup
+| Command | Description |
+| --- | --- |
+| `/message` | Send a message as the bot (Discord Admin only). |
+| `/faq1` | Post the FAQ notice about site stability. |
+| `/utd` | Post the update-in-progress notice. |
+| `/archive` | Archive the current channel and move it to the Archive category. |
+| `/put-member-role` | Add the member auto-role to everyone missing it (Admin only). |
+
+## Project structure
+
+```
+trackerbot/
+├── bot.js              # Discord bot entry point
+├── webserver.js        # Public bug/data intake server
+├── src/
+│   ├── client/         # Discord client setup
+│   ├── commands/       # Slash command registration
+│   ├── config/         # Env validation and constants
+│   ├── handlers/       # Interaction and member event handlers
+│   ├── interactions/   # Slash and button handlers
+│   └── utils/          # Shared helpers (e.g. card embeds)
+└── web/                # Static issue/data report forms
 ```
 
-## Deployment notes
+## Contributing
 
-- Use `deploy-test.sh` or `deploy-prod.sh` as references for installing dependencies and restarting the PM2 processes on servers.
-- The bot registers global slash commands on startup. When adding commands, allow up to one hour for Discord to propagate them globally.
-- When rotating credentials, restart all services so environment variables are reloaded.
+Issues and pull requests are welcome. Please open an issue to discuss substantial changes before submitting a PR.
+
+## License
+
+Released under the [MIT License](LICENSE).

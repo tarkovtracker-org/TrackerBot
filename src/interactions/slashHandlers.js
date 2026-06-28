@@ -39,8 +39,11 @@ export async function handleChatInputCommand(interaction) {
     case "utd":
       await handleUtdCommand(interaction);
       return true;
-    case "ticket-close":
-      await handleTicketClose(interaction);
+    case "archive":
+      await handleArchiveChannel(interaction);
+      return true;
+    case "put-member-role":
+      await handlePutMemberRole(interaction);
       return true;
     default:
       return false;
@@ -101,42 +104,8 @@ async function handleUtdCommand(interaction) {
   });
 }
 
-async function handleTicketClose(interaction) {
+async function handleArchiveChannel(interaction) {
   const channel = interaction.channel;
-
-  if (!channel.topic || !channel.topic.startsWith("Ticket for ")) {
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Wrong channel",
-          description: "This command can only be used inside a ticket channel.",
-          color: colors.error
-        })
-      ],
-      flags: 64
-    });
-    return;
-  }
-
-  const ticketUserId = channel.topic.replace("Ticket for ", "").trim();
-
-  const isAdmin = hasDiscordAdminRole(interaction.member.roles.cache);
-  const isOwner = interaction.user.id === ticketUserId;
-
-  if (!isAdmin && !isOwner) {
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Permission Required",
-          description: "Only the ticket owner or Discord Admins can close this ticket.",
-          color: colors.error
-        })
-      ],
-      flags: 64
-    });
-    return;
-  }
-
   const guild = interaction.guild;
   const archiveCategory = guild.channels.cache.find(
     c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === "archive"
@@ -161,8 +130,8 @@ async function handleTicketClose(interaction) {
     await channel.send({
       embeds: [
         createCardEmbed({
-          title: "Ticket archived",
-          description: "This conversation has been archived for reference.",
+          title: "Channel archived",
+          description: "This channel has been archived.",
           color: colors.info
         })
       ]
@@ -170,24 +139,120 @@ async function handleTicketClose(interaction) {
     await interaction.reply({
       embeds: [
         createCardEmbed({
-          title: "Ticket closed",
-          description: "Ticket successfully archived.",
+          title: "Channel archived",
+          description: "Channel successfully archived.",
           color: colors.success
         })
       ],
       flags: 64
     });
   } catch (err) {
-    console.error("Error closing ticket:", err);
+    console.error("Error archiving channel:", err);
     await interaction.reply({
       embeds: [
         createCardEmbed({
           title: "Archive failed",
-          description: "Failed to archive ticket. Check bot permissions.",
+          description: "Failed to archive channel. Check bot permissions.",
           color: colors.error
         })
       ],
       flags: 64
+    });
+  }
+}
+
+async function handlePutMemberRole(interaction) {
+  const panelAdminRoleId = process.env.PANEL_ADMIN_ROLE_ID;
+  const autoRoleId = process.env.AUTO_ROLE_ID_4;
+
+  // Vérifier que l'utilisateur a le rôle PANEL_ADMIN_ROLE_ID
+  if (!interaction.member.roles.cache.has(panelAdminRoleId)) {
+    await interaction.reply({
+      embeds: [
+        createCardEmbed({
+          title: "Permission Denied",
+          description: "Only Panel Admins can use this command.",
+          color: colors.error
+        })
+      ],
+      flags: 64
+    });
+    return;
+  }
+
+  await interaction.deferReply({ flags: 64 });
+
+  try {
+    // Récupérer tous les membres du serveur
+    const guild = interaction.guild;
+    await guild.members.fetch();
+
+    const role = await guild.roles.fetch(autoRoleId);
+    if (!role) {
+      await interaction.editReply({
+        embeds: [
+          createCardEmbed({
+            title: "Role Not Found",
+            description: `Role with ID ${autoRoleId} not found.`,
+            color: colors.error
+          })
+        ]
+      });
+      return;
+    }
+
+    // Trouver les membres qui n'ont pas le rôle
+    const membersWithoutRole = guild.members.cache.filter(
+      member => !member.roles.cache.has(autoRoleId) && !member.user.bot
+    );
+
+    if (membersWithoutRole.size === 0) {
+      await interaction.editReply({
+        embeds: [
+          createCardEmbed({
+            title: "No Members to Update",
+            description: "All members already have the role.",
+            color: colors.info
+          })
+        ]
+      });
+      return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Ajouter le rôle à chaque membre
+    for (const [, member] of membersWithoutRole) {
+      try {
+        await member.roles.add(autoRoleId);
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to add role to ${member.user.tag}:`, err);
+        failCount++;
+      }
+    }
+
+    await interaction.editReply({
+      embeds: [
+        createCardEmbed({
+          title: "Role Assignment Complete",
+          description: `✅ Successfully added role to ${successCount} member(s)\n${failCount > 0 ? `❌ Failed for ${failCount} member(s)` : ''}`,
+          color: colors.success
+        })
+      ]
+    });
+
+  } catch (err) {
+    console.error("Error in put-member-role:", err);
+    await interaction.editReply({
+      embeds: [
+        createCardEmbed({
+          title: "Error",
+          description: "An error occurred while adding roles.",
+          color: colors.error
+        })
+      ]
     });
   }
 }
