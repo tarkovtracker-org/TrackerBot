@@ -22,7 +22,10 @@ const slashCommands = [
   new SlashCommandBuilder()
     .setName("put-member-role")
     .setDescription("Add AUTO_ROLE_ID_4 to all members who don't have it (Admin only)")
-];
+
+  new SlashCommandBuilder()
+    .setName('wipe')
+    .setDescription('Delete all messages in the channel (admin only)');
 
 const slashCommandData = slashCommands.map(command => command.toJSON());
 
