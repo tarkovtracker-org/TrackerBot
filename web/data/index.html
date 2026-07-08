@@ -45,6 +45,12 @@
           <label for="description">Details *</label>
           <textarea name="description" id="description" placeholder="Describe what is wrong, the correct value, and how it was verified." required></textarea>
 
+          <!-- Honeypot field: hidden from real users, bots fill it. -->
+          <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">
+            <label for="company">Company (leave blank)</label>
+            <input type="text" name="company" id="company" tabindex="-1" autocomplete="off" />
+          </div>
+
           <div class="actions">
             <button type="submit">Submit Data Issue</button>
           </div>
