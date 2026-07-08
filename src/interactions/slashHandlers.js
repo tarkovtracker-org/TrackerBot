@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits, MessageFlags } from "discord.js";
+import { ChannelType, MessageFlags } from "discord.js";
 import { allowedCommandRoles } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { executeWipe } from "../commands/wipeCommand.js";
