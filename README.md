@@ -47,7 +47,8 @@ Copy `.env.example` to `.env` and fill in every value:
 
 - **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_ROLE_ID` (comma-separated Discord role IDs granting admin-only commands such as `/wipe`)
 - **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV`, `REPO_DATA_REPORT`
-- **Channel IDs for automated posts:** `BUG_REPORT_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
+- **Channel IDs for automated posts:** `WELCOME_CHANNEL_ID`
+- **Role IDs:** `PANEL_ADMIN_ROLE_ID`, `AUTO_ROLE_ID_1`–`AUTO_ROLE_ID_4` (auto-roles for new members); optional `ALLOWED_COMMAND_ROLE_IDS` (comma-separated role IDs allowed to use member commands, falls back to a built-in default)
 - **Web server:** `PORT`, `ALLOWED_ORIGINS` (comma-separated origins, exact match)
 
 > `GITHUB_TOKEN` needs `repo` scope (or equivalent granular access) to create issues in the configured repositories. For production, prefer a fine-grained PAT scoped to `issues:write` on the two target repos only.
