@@ -49,6 +49,7 @@ test("ensureEnvVars passes when all vars are set", async () => {
   setEnv("AUTO_ROLE_ID_3", "r");
   setEnv("AUTO_ROLE_ID_4", "r");
   setEnv("PANEL_ADMIN_ROLE_ID", "r");
+  setEnv("ADMIN_ROLE_ID", "r");
 
   const { ensureEnvVars } = await importEnv();
   assert.doesNotThrow(() => ensureEnvVars());

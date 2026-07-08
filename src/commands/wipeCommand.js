@@ -6,6 +6,7 @@ import {
   ChannelType
 } from "discord.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
+import { hasAdminRole } from "../config/constants.js";
 
 const colors = {
   success: 0x4ade80,
@@ -16,17 +17,8 @@ const colors = {
 const CONFIRM_TIMEOUT_MS = 15_000;
 const MAX_DELETE_BATCHES = 50;
 
-function getAdminIds() {
-  const raw = process.env.ADMIN_IDS ?? "";
-  return new Set(
-    raw.split(",").map(id => id.trim()).filter(Boolean)
-  );
-}
-
 export async function executeWipe(interaction) {
-  const adminIds = getAdminIds();
-
-  if (!adminIds.has(interaction.user.id)) {
+  if (!hasAdminRole(interaction.member.roles.cache)) {
     await interaction.reply({
       embeds: [
         createCardEmbed({

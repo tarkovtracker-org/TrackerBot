@@ -45,7 +45,7 @@ npm install
 
 Copy `.env.example` to `.env` and fill in every value:
 
-- **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_IDS` (comma-separated Discord user IDs)
+- **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_ROLE_ID` (comma-separated Discord role IDs granting admin-only commands such as `/wipe`)
 - **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV`, `REPO_DATA_REPORT`
 - **Channel IDs for automated posts:** `BUG_REPORT_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
 - **Web server:** `PORT`, `ALLOWED_ORIGINS` (comma-separated origins, exact match)

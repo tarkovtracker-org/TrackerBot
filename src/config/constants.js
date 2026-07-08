@@ -9,6 +9,19 @@ export const allowedCommandRoles = new Set(
     .filter(Boolean)
 );
 
+// Admin-only commands (e.g. /wipe) require one of these roles.
+// Configurable via ADMIN_ROLE_ID (comma-separated Discord role IDs).
+export const adminRoles = new Set(
+  (process.env.ADMIN_ROLE_ID || "")
+    .split(",")
+    .map(id => id.trim())
+    .filter(Boolean)
+);
+
+export function hasAdminRole(roleCache) {
+  return roleCache.some(role => adminRoles.has(role.id));
+}
+
 export const reactionRoleButtonConfig = [
   { customId: "role_site", emoji: "🌐", label: "Site", roleName: "site" },
   { customId: "role_monitor", emoji: "🖥️", label: "Monitor", roleName: "monitor" },
