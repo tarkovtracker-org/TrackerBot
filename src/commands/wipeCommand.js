@@ -11,7 +11,8 @@ import { hasAdminRole } from "../config/constants.js";
 const colors = {
   success: 0x4ade80,
   error: 0xff6b81,
-  info: 0x7f8cff
+  info: 0x7f8cff,
+  warning: 0xffb347
 };
 
 const CONFIRM_TIMEOUT_MS = 15_000;
@@ -68,7 +69,7 @@ export async function executeWipe(interaction) {
           "This will bulk-delete messages up to 14 days old (Discord API limit). " +
           "Older messages cannot be bulk-deleted and will be skipped.\n\n" +
           "This action cannot be undone.",
-        color: 0xffb347
+        color: colors.warning
       })
     ],
     components: [row],
