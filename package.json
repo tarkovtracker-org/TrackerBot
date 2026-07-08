@@ -18,8 +18,7 @@
     "discord.js": "^14.26.4",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "express-rate-limit": "^8.5.2",
-    "multer": "^2.1.0"
+    "express-rate-limit": "^8.5.2"
   },
   "overrides": {
     "undici": "^6.27.0",
