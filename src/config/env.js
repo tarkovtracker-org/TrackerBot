@@ -7,7 +7,8 @@ const requiredEnvVars = [
   "AUTO_ROLE_ID_2",
   "AUTO_ROLE_ID_3",
   "AUTO_ROLE_ID_4",
-  "PANEL_ADMIN_ROLE_ID"
+  "PANEL_ADMIN_ROLE_ID",
+  "ADMIN_ROLE_ID"
 ];
 
 export function getRequiredEnv(name) {

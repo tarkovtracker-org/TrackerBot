@@ -1,24 +1,33 @@
 {
   "name": "tracker-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Discord companion bot for TarkovTracker.org with slash commands, reaction roles, ticketing, and a GitHub issue intake portal.",
   "type": "module",
   "main": "bot.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "start:bot": "node bot.js",
     "start:web": "node webserver.js",
     "start": "concurrently -n bot,web \"npm:start:bot\" \"npm:start:web\""
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "discord",
+    "discord-bot",
+    "tarkov",
+    "tarkovtracker",
+    "slash-commands"
+  ],
+  "author": "TarkovTracker.org",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "axios": "^1.13.2",
     "discord.js": "^14.26.4",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "multer": "^2.1.0"
+    "express-rate-limit": "^8.5.2"
   },
   "overrides": {
     "undici": "^6.27.0",

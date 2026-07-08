@@ -1,6 +1,7 @@
-import { ChannelType, PermissionFlagsBits } from "discord.js";
+import { ChannelType, MessageFlags } from "discord.js";
 import { allowedCommandRoles } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
+import { executeWipe } from "../commands/wipeCommand.js";
 
 const colors = {
   success: 0x4ade80,
@@ -24,7 +25,7 @@ export async function handleChatInputCommand(interaction) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
     return true;
   }
@@ -45,6 +46,9 @@ export async function handleChatInputCommand(interaction) {
     case "put-member-role":
       await handlePutMemberRole(interaction);
       return true;
+    case "wipe":
+      await executeWipe(interaction);
+      return true;
     default:
       return false;
   }
@@ -61,7 +65,7 @@ async function handleMessageCommand(interaction) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -75,7 +79,7 @@ async function handleMessageCommand(interaction) {
         color: colors.success
       })
     ],
-    flags: 64
+    flags: MessageFlags.Ephemeral
   });
   await interaction.channel.send(content);
 }
@@ -120,7 +124,7 @@ async function handleArchiveChannel(interaction) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -144,7 +148,7 @@ async function handleArchiveChannel(interaction) {
           color: colors.success
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   } catch (err) {
     console.error("Error archiving channel:", err);
@@ -156,7 +160,7 @@ async function handleArchiveChannel(interaction) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   }
 }
@@ -165,7 +169,7 @@ async function handlePutMemberRole(interaction) {
   const panelAdminRoleId = process.env.PANEL_ADMIN_ROLE_ID;
   const autoRoleId = process.env.AUTO_ROLE_ID_4;
 
-  // Vérifier que l'utilisateur a le rôle PANEL_ADMIN_ROLE_ID
+  // Check that the user has the PANEL_ADMIN_ROLE_ID role
   if (!interaction.member.roles.cache.has(panelAdminRoleId)) {
     await interaction.reply({
       embeds: [
@@ -175,15 +179,15 @@ async function handlePutMemberRole(interaction) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
 
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
-    // Récupérer tous les membres du serveur
+    // Fetch all guild members
     const guild = interaction.guild;
     await guild.members.fetch();
 
@@ -201,7 +205,7 @@ async function handlePutMemberRole(interaction) {
       return;
     }
 
-    // Trouver les membres qui n'ont pas le rôle
+    // Find members who don't have the role
     const membersWithoutRole = guild.members.cache.filter(
       member => !member.roles.cache.has(autoRoleId) && !member.user.bot
     );
@@ -222,7 +226,7 @@ async function handlePutMemberRole(interaction) {
     let successCount = 0;
     let failCount = 0;
 
-    // Ajouter le rôle à chaque membre
+    // Add the role to each member
     for (const [, member] of membersWithoutRole) {
       try {
         await member.roles.add(autoRoleId);

@@ -45,12 +45,12 @@ npm install
 
 Copy `.env.example` to `.env` and fill in every value:
 
-- **Discord bot basics:** `DISCORD_TOKEN`, `GUILD_ID`
+- **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_ROLE_ID` (comma-separated Discord role IDs granting admin-only commands such as `/wipe`)
 - **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV`, `REPO_DATA_REPORT`
 - **Channel IDs for automated posts:** `BUG_REPORT_CHANNEL_ID`, `TICKET_CHANNEL_ID`, `WELCOME_CHANNEL_ID`
-- **Web server port override:** `PORT`
+- **Web server:** `PORT`, `ALLOWED_ORIGINS` (comma-separated origins, exact match)
 
-> `GITHUB_TOKEN` needs `repo` scope (or equivalent granular access) to create issues in the configured repositories.
+> `GITHUB_TOKEN` needs `repo` scope (or equivalent granular access) to create issues in the configured repositories. For production, prefer a fine-grained PAT scoped to `issues:write` on the two target repos only.
 
 ### 3. Run the services locally
 
@@ -81,10 +81,11 @@ npm run start:web   # Public issue forms (http://localhost:3000)
 | `/utd` | Post the update-in-progress notice. |
 | `/archive` | Archive the current channel and move it to the Archive category. |
 | `/put-member-role` | Add the member auto-role to everyone missing it (Admin only). |
+| `/wipe` | Confirmed bulk-delete of recent messages in the current channel (Admin only, 14-day Discord API limit). |
 
 ## Project structure
 
-```
+```text
 trackerbot/
 ├── bot.js              # Discord bot entry point
 ├── webserver.js        # Public bug/data intake server
