@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits } from "discord.js";
+import { ChannelType, PermissionFlagsBits, MessageFlags } from "discord.js";
 import { reactionRoleNameMap } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 
@@ -41,7 +41,7 @@ async function handleTicketCreation(interaction) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -59,7 +59,7 @@ async function handleTicketCreation(interaction) {
           color: colors.info
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -135,7 +135,7 @@ async function handleTicketCreation(interaction) {
           color: colors.success
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   } catch (err) {
     console.error("Error creating ticket:", err);
@@ -147,7 +147,7 @@ async function handleTicketCreation(interaction) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   }
 }
@@ -169,7 +169,7 @@ async function toggleReactionRole(interaction, roleName) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -185,7 +185,7 @@ async function toggleReactionRole(interaction, roleName) {
             color: colors.info
           })
         ],
-        flags: 64
+        flags: MessageFlags.Ephemeral
       });
     } else {
       await member.roles.add(role);
@@ -197,7 +197,7 @@ async function toggleReactionRole(interaction, roleName) {
             color: colors.success
           })
         ],
-        flags: 64
+        flags: MessageFlags.Ephemeral
       });
     }
   } catch (err) {
@@ -210,7 +210,7 @@ async function toggleReactionRole(interaction, roleName) {
           color: colors.error
         })
       ],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   }
 }

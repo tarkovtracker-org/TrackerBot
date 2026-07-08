@@ -1,6 +1,13 @@
-export const allowedCommandRoles = new Set([
-  "1433391726051197020"
-]);
+// Command roles can be overridden via ALLOWED_COMMAND_ROLE_IDS (comma-separated).
+// Falls back to the default role ID below when the env var is not set.
+const DEFAULT_COMMAND_ROLE_IDS = ["1433391726051197020"];
+
+export const allowedCommandRoles = new Set(
+  (process.env.ALLOWED_COMMAND_ROLE_IDS || DEFAULT_COMMAND_ROLE_IDS.join(","))
+    .split(",")
+    .map(id => id.trim())
+    .filter(Boolean)
+);
 
 export const reactionRoleButtonConfig = [
   { customId: "role_site", emoji: "🌐", label: "Site", roleName: "site" },

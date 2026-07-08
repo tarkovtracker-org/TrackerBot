@@ -18,7 +18,9 @@ jobs:
       - name: Update the year in LICENSE
         run: |
           year="$(date +%Y)"
-          sed -i "s/Copyright (c) [0-9]\{4\} /Copyright (c) ${year} /" LICENSE
+          # Matches "Copyright (c) 2025" or "Copyright (c) 2025-2026" and replaces
+          # the year portion with the current year.
+          sed -i -E "s/Copyright \(c\) [0-9]{4}(-[0-9]{4})? /Copyright (c) ${year} /" LICENSE
 
       - name: Commit and push if changed
         run: |

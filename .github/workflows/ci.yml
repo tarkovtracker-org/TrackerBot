@@ -42,3 +42,6 @@ jobs:
             exit 1
           fi
           echo "All JS files passed syntax check."
+
+      - name: Run tests
+        run: npm test

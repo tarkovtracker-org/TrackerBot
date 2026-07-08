@@ -1,6 +1,11 @@
 import { Events } from "discord.js";
 import { getRequiredEnv } from "../config/env.js";
 
+// In-memory map of member ID -> welcome message ID.
+// Limitation: on bot restart this map is empty, so welcome messages for
+// members who joined before the restart cannot be deleted when they leave.
+// Acceptable at this scale; persist to a store if orphaned messages become
+// a problem.
 const welcomeMessages = new Map();
 
 export function registerMemberHandlers(client) {
