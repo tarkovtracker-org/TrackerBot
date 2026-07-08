@@ -128,19 +128,20 @@ export async function executeWipe(interaction) {
       batches++;
     }
 
+    const hitCap = batches >= MAX_DELETE_BATCHES;
     await interaction.editReply({
       embeds: [
         createCardEmbed({
           title: "Channel Wiped",
-          description: `Deleted ${totalDeleted} message(s).\n\nMessages older than 14 days cannot be bulk-deleted and were skipped.`,
+          description: `Deleted ${totalDeleted} message(s).\n\nMessages older than 14 days cannot be bulk-deleted and were skipped.${hitCap ? "\n\nBatch limit reached — run /wipe again to continue." : ""}`,
           color: colors.success
         })
       ],
       components: []
     });
   } catch (err) {
-    // awaitMessageComponent rejects on timeout
-    if (err.code === "InteractionCollectorError" || err.message?.includes("time")) {
+    // awaitMessageComponent rejects with InteractionCollectorError on timeout
+    if (err.code === "InteractionCollectorError") {
       await interaction.editReply({
         embeds: [
           createCardEmbed({

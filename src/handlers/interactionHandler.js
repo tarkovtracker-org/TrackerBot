@@ -28,7 +28,11 @@ export function registerInteractionHandler(client) {
     } catch (err) {
       console.error("Unhandled interaction error:", err);
       try {
-        if (interaction.isRepliable() && !interaction.replied) {
+        if (interaction.deferred) {
+          await interaction.editReply({
+            content: "Something went wrong. Please try again or contact an admin."
+          });
+        } else if (interaction.isRepliable() && !interaction.replied) {
           await interaction.reply({
             content: "Something went wrong. Please try again or contact an admin.",
             flags: MessageFlags.Ephemeral

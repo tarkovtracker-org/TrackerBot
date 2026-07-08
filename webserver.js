@@ -61,25 +61,38 @@ function truncate(value, max) {
 }
 
 // --- Rate limiting ----------------------------------------------------------
+// Separate limiter instances so /data and /issue have independent per-IP quotas.
 
-const reportLimiter = rateLimit({
+const rateLimitConfig = {
   windowMs: 60_000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many submissions. Please wait a minute and try again." }
-});
+};
+
+const dataLimiter = rateLimit(rateLimitConfig);
+const issueLimiter = rateLimit(rateLimitConfig);
 
 // --- Origin allowlist -------------------------------------------------------
 
+// Trailing slashes are stripped so that "https://example.com/" and
+// "https://example.com" are treated identically.
 const ALLOWED_ORIGINS = new Set(
-  (process.env.ALLOWED_ORIGINS || "").split(",").map(o => o.trim()).filter(Boolean)
+  (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map(o => o.trim().replace(/\/+$/, ""))
+    .filter(Boolean)
 );
 
 function checkOrigin(req, res, next) {
   if (ALLOWED_ORIGINS.size === 0) return next();
   const origin = req.headers.origin || req.headers.referer || "";
-  const allowed = [...ALLOWED_ORIGINS].some(o => origin.startsWith(o));
+  // Exact match or the allowed origin followed by a "/" boundary.
+  // This blocks suffix attacks like "https://tarkovtracker.org.evil.com".
+  const allowed = [...ALLOWED_ORIGINS].some(
+    o => origin === o || origin.startsWith(`${o}/`)
+  );
   if (!allowed) {
     return res.status(403).json({ error: "Forbidden origin." });
   }
@@ -117,7 +130,7 @@ function sanitizeReportFields({ title, discord, category, description, reference
 /**
  * Data bug report
  */
-app.post("/data", reportLimiter, checkOrigin, async (req, res) => {
+app.post("/data", dataLimiter, checkOrigin, async (req, res) => {
   try {
     if (hasHoneypotHit(req.body)) {
       return res.json({ ok: true });
@@ -148,7 +161,7 @@ app.post("/data", reportLimiter, checkOrigin, async (req, res) => {
         title: `[${category}] ${title}`,
         body: lines.join("\n")
       },
-      { headers: GITHUB_HEADERS }
+      { headers: GITHUB_HEADERS, timeout: 10_000 }
     );
 
     res.json({ ok: true });
@@ -161,7 +174,7 @@ app.post("/data", reportLimiter, checkOrigin, async (req, res) => {
 /**
  * Dev-only issue report
  */
-app.post("/issue", reportLimiter, checkOrigin, async (req, res) => {
+app.post("/issue", issueLimiter, checkOrigin, async (req, res) => {
   try {
     if (hasHoneypotHit(req.body)) {
       return res.json({ ok: true });
@@ -181,7 +194,7 @@ ${description}`;
     await axios.post(
       `https://api.github.com/repos/${DEV_REPO}/issues`,
       { title, body },
-      { headers: GITHUB_HEADERS }
+      { headers: GITHUB_HEADERS, timeout: 10_000 }
     );
 
     res.json({ ok: true });

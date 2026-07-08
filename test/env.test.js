@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 // env.js reads from process.env at import time, so we set vars before import
@@ -9,11 +9,25 @@ async function importEnv() {
   return import(url);
 }
 
+// Track env vars set during tests so they can be cleaned up after each one.
+const envVarsToClean = new Set();
+
+function setEnv(name, value) {
+  process.env[name] = value;
+  envVarsToClean.add(name);
+}
+
+afterEach(() => {
+  for (const name of envVarsToClean) {
+    delete process.env[name];
+  }
+  envVarsToClean.clear();
+});
+
 test("getRequiredEnv returns the value when set", async () => {
-  process.env.TEST_VAR_X = "hello";
+  setEnv("TEST_VAR_X", "hello");
   const { getRequiredEnv } = await importEnv();
   assert.equal(getRequiredEnv("TEST_VAR_X"), "hello");
-  delete process.env.TEST_VAR_X;
 });
 
 test("getRequiredEnv throws when missing", async () => {
@@ -26,15 +40,15 @@ test("getRequiredEnv throws when missing", async () => {
 });
 
 test("ensureEnvVars passes when all vars are set", async () => {
-  process.env.DISCORD_TOKEN = "t";
-  process.env.BUG_REPORT_CHANNEL_ID = "c";
-  process.env.TICKET_CHANNEL_ID = "c";
-  process.env.WELCOME_CHANNEL_ID = "c";
-  process.env.AUTO_ROLE_ID_1 = "r";
-  process.env.AUTO_ROLE_ID_2 = "r";
-  process.env.AUTO_ROLE_ID_3 = "r";
-  process.env.AUTO_ROLE_ID_4 = "r";
-  process.env.PANEL_ADMIN_ROLE_ID = "r";
+  setEnv("DISCORD_TOKEN", "t");
+  setEnv("BUG_REPORT_CHANNEL_ID", "c");
+  setEnv("TICKET_CHANNEL_ID", "c");
+  setEnv("WELCOME_CHANNEL_ID", "c");
+  setEnv("AUTO_ROLE_ID_1", "r");
+  setEnv("AUTO_ROLE_ID_2", "r");
+  setEnv("AUTO_ROLE_ID_3", "r");
+  setEnv("AUTO_ROLE_ID_4", "r");
+  setEnv("PANEL_ADMIN_ROLE_ID", "r");
 
   const { ensureEnvVars } = await importEnv();
   assert.doesNotThrow(() => ensureEnvVars());
