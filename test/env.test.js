@@ -41,8 +41,6 @@ test("getRequiredEnv throws when missing", async () => {
 
 test("ensureEnvVars passes when all vars are set", async () => {
   setEnv("DISCORD_TOKEN", "t");
-  setEnv("BUG_REPORT_CHANNEL_ID", "c");
-  setEnv("TICKET_CHANNEL_ID", "c");
   setEnv("WELCOME_CHANNEL_ID", "c");
   setEnv("AUTO_ROLE_ID_1", "r");
   setEnv("AUTO_ROLE_ID_2", "r");
