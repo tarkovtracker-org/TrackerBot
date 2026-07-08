@@ -1,6 +1,7 @@
 import { ChannelType, PermissionFlagsBits } from "discord.js";
 import { allowedCommandRoles } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
+import { executeWipe } from "../commands/wipeCommand.js";
 
 const colors = {
   success: 0x4ade80,
@@ -44,6 +45,9 @@ export async function handleChatInputCommand(interaction) {
       return true;
     case "put-member-role":
       await handlePutMemberRole(interaction);
+      return true;
+    case "wipe":
+      await executeWipe(interaction);
       return true;
     default:
       return false;
