@@ -84,6 +84,7 @@ npm run start:web   # Public issue forms (http://localhost:3000)
 | `/archive` | Archive the current channel and move it to the Archive category. |
 | `/put-member-role` | Add the member auto-role to everyone missing it (Admin only). |
 | `/wipe` | Confirmed bulk-delete of recent messages in the current channel (Admin only, 14-day Discord API limit). |
+| `/nuke` | Clone the current channel with all permissions/settings and delete the old one (Admin only, confirm with warning). |
 
 ## Project structure
 
