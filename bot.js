@@ -5,6 +5,7 @@ import { ensureEnvVars } from "./src/config/env.js";
 import { registerSlashCommands } from "./src/commands/registerSlashCommands.js";
 import { registerInteractionHandler } from "./src/handlers/interactionHandler.js";
 import { registerMemberHandlers } from "./src/handlers/memberHandlers.js";
+import { setupHoneypot } from "./src/handlers/honeypotHandler.js";
 
 ensureEnvVars();
 
@@ -23,5 +24,6 @@ client.once(Events.ClientReady, async () => {
 
 registerInteractionHandler(client);
 registerMemberHandlers(client);
+setupHoneypot(client);
 
 client.login(process.env.DISCORD_TOKEN);

@@ -31,6 +31,7 @@ Requires **Node.js 18+**.
 - Automated welcome messages and auto-roles for new members
 - Quick announcement helpers (`/message`, `/faq1`, `/utd`)
 - One-command channel archiving (`/archive`)
+- Honeypot anti-spam channel that auto-bans anyone who posts in it
 - Public web forms that open GitHub issues for bug and data reports
 
 ## Getting started
@@ -47,7 +48,7 @@ Copy `.env.example` to `.env` and fill in every value:
 
 - **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_ROLE_ID` (comma-separated Discord role IDs granting admin-only commands such as `/wipe`)
 - **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV`, `REPO_DATA_REPORT`
-- **Channel IDs for automated posts:** `WELCOME_CHANNEL_ID`
+- **Channel IDs for automated posts:** `WELCOME_CHANNEL_ID`; optional `HONEYPOT_CHANNEL_ID` (a hidden channel — anyone who posts in it is banned on sight, with a kick fallback; messages older than 16h are swept hourly)
 - **Role IDs:** `PANEL_ADMIN_ROLE_ID`, `AUTO_ROLE_ID_1`–`AUTO_ROLE_ID_4` (auto-roles for new members); optional `ALLOWED_COMMAND_ROLE_IDS` (comma-separated role IDs allowed to use member commands, falls back to a built-in default)
 - **Web server:** `PORT`, `ALLOWED_ORIGINS` (comma-separated origins, exact match)
 
