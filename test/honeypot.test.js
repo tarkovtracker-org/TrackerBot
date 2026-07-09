@@ -25,18 +25,22 @@ test("setupHoneypot is a no-op when HONEYPOT_CHANNEL_ID is unset", async () => {
   assert.equal(registered, false, "no listeners should be registered when disabled");
 });
 
-test("setupHoneypot registers a MessageCreate listener when enabled", async () => {
+test("setupHoneypot registers listeners when enabled", async () => {
   process.env.HONEYPOT_CHANNEL_ID = "123";
   const { setupHoneypot } = await importHoneypot();
 
-  const events = {};
+  const onEvents = {};
+  const onceEvents = {};
   const fakeClient = {
-    on: (evt, fn) => { events[evt] = fn; },
-    once: () => {}
+    on: (evt, fn) => { onEvents[evt] = fn; },
+    once: (evt, fn) => { onceEvents[evt] = fn; }
   };
 
   setupHoneypot(fakeClient);
-  assert.ok(events.messageCreate, "MessageCreate listener should be registered when enabled");
+  assert.ok(onEvents.messageCreate, "MessageCreate listener should be registered via .on");
+  // ClientReady must be registered via .once (not .on) to avoid timer leaks on reconnect.
+  assert.ok(onceEvents.clientReady, "ClientReady handler should be registered via .once");
+  assert.equal(onEvents.clientReady, undefined, "ClientReady must not use .on");
 
   delete process.env.HONEYPOT_CHANNEL_ID;
 });

@@ -15,11 +15,17 @@ const HONEYPOT_WARNING = `${HONEYPOT_MARKER}\n**⚠️ Honeypot channel** — do
 const SIXTEEN_HOURS_MS = 16 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const BULK_DELETE_LIMIT_MS = 14 * 24 * 60 * 60 * 1000; // Discord bulk-delete window
+// Cap pagination so a runaway channel can't trigger unbounded API calls.
+// A honeypot should hold ~1 message in steady state; 1000 is a generous ceiling.
+const MAX_FETCH_PAGES = 10;
+const PAGE_SIZE = 100;
 
 export function setupHoneypot(client) {
   if (!HONEYPOT_CHANNEL_ID) return;
 
-  client.on(Events.ClientReady, async () => {
+  // Use `once`: discord.js re-emits ClientReady on reconnect, and `on` would
+  // register a fresh setInterval each time, leaking cleanup timers.
+  client.once(Events.ClientReady, async () => {
     try {
       const channel = client.channels.cache.get(HONEYPOT_CHANNEL_ID);
       if (!channel?.isTextBased()) {
@@ -56,51 +62,67 @@ export function setupHoneypot(client) {
 }
 
 // Send the warning message only if no existing bot message carries the marker.
+// Paginates so an existing marker beyond the first page isn't missed.
 async function ensureHoneypotMessage(channel) {
-  const recent = await channel.messages.fetch({ limit: 50 });
-  const exists = recent.some(
-    msg => msg.author.bot && msg.content?.includes(HONEYPOT_MARKER)
-  );
-  if (!exists) {
-    await channel.send(HONEYPOT_WARNING);
+  for await (const messages of fetchMessagePages(channel)) {
+    if (messages.some(msg => msg.author.bot && msg.content?.includes(HONEYPOT_MARKER))) {
+      return; // marker found — no duplicate needed
+    }
   }
+  await channel.send(HONEYPOT_WARNING);
 }
 
 // Delete messages older than 16h, preserving the honeypot warning message.
 // Uses bulk delete for messages within Discord's 14-day window, individual
-// delete otherwise.
+// delete otherwise. Paginates so older messages beyond the first page are swept.
 async function cleanupOldMessages(channel) {
   const now = Date.now();
-  const recent = await channel.messages.fetch({ limit: 100 });
+  for await (const messages of fetchMessagePages(channel)) {
+    const toDelete = messages.filter(
+      msg => now - msg.createdTimestamp > SIXTEEN_HOURS_MS &&
+        !(msg.author.bot && msg.content?.includes(HONEYPOT_MARKER))
+    );
 
-  const toDelete = recent.filter(
-    msg => now - msg.createdTimestamp > SIXTEEN_HOURS_MS &&
-      !(msg.author.bot && msg.content?.includes(HONEYPOT_MARKER))
-  );
+    if (toDelete.size === 0) continue;
 
-  if (toDelete.size === 0) return;
+    const bulkable = toDelete.filter(
+      msg => now - msg.createdTimestamp <= BULK_DELETE_LIMIT_MS
+    );
+    const individual = toDelete.filter(
+      msg => now - msg.createdTimestamp > BULK_DELETE_LIMIT_MS
+    );
 
-  const bulkable = toDelete.filter(
-    msg => now - msg.createdTimestamp <= BULK_DELETE_LIMIT_MS
-  );
-  const individual = toDelete.filter(
-    msg => now - msg.createdTimestamp > BULK_DELETE_LIMIT_MS
-  );
+    if (bulkable.size > 0) {
+      try {
+        await channel.bulkDelete([...bulkable.values()]);
+      } catch (err) {
+        console.error("Honeypot bulk delete failed:", err);
+      }
+    }
 
-  if (bulkable.size > 0) {
-    try {
-      await channel.bulkDelete([...bulkable.values()]);
-    } catch (err) {
-      console.error("Honeypot bulk delete failed:", err);
+    for (const msg of individual.values()) {
+      try {
+        await msg.delete();
+      } catch (err) {
+        console.error("Honeypot individual delete failed:", err);
+      }
     }
   }
+}
 
-  for (const msg of individual.values()) {
-    try {
-      await msg.delete();
-    } catch (err) {
-      console.error("Honeypot individual delete failed:", err);
-    }
+// Yields pages of channel messages newest-first, using a `before` cursor.
+// Bounded by MAX_FETCH_PAGES to prevent unbounded API calls on a runaway channel.
+async function* fetchMessagePages(channel) {
+  let before;
+  for (let i = 0; i < MAX_FETCH_PAGES; i++) {
+    const messages = await channel.messages.fetch({
+      limit: PAGE_SIZE,
+      ...(before ? { before } : {})
+    });
+    if (messages.size === 0) return;
+    yield messages;
+    before = messages.last().id; // oldest in this page → continue backwards
+    if (messages.size < PAGE_SIZE) return; // exhausted history
   }
 }
 
