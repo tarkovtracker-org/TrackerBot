@@ -2,6 +2,7 @@ import { ChannelType, MessageFlags } from "discord.js";
 import { allowedCommandRoles } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { executeWipe } from "../commands/wipeCommand.js";
+import { executeNuke } from "../commands/nukeCommand.js";
 
 const colors = {
   success: 0x4ade80,
@@ -48,6 +49,9 @@ export async function handleChatInputCommand(interaction) {
       return true;
     case "wipe":
       await executeWipe(interaction);
+      return true;
+    case "nuke":
+      await executeNuke(interaction);
       return true;
     default:
       return false;
