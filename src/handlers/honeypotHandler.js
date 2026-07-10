@@ -1,4 +1,5 @@
 import { Events } from "discord.js";
+import { hasAdminRole } from "../config/constants.js";
 
 // Honeypot channel: a hidden channel that real users should never post in.
 // Bots/spam accounts that find it and send a message are banned on sight.
@@ -10,7 +11,7 @@ const HONEYPOT_CHANNEL_ID = process.env.HONEYPOT_CHANNEL_ID;
 // across restarts without persisting state.
 const HONEYPOT_MARKER = "<!-- trackerbot-honeypot-message -->";
 
-const HONEYPOT_WARNING = `${HONEYPOT_MARKER}\n**⚠️ Honeypot channel** — do not post here.`;
+const HONEYPOT_WARNING = `${HONEYPOT_MARKER}\n# ⛔️⚠️ DO NOT SEND MESSAGES HERE, YOU WILL BE BANNED INSTANTLY ⚠️⛔️`;
 
 const SIXTEEN_HOURS_MS = 16 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // hourly
@@ -50,6 +51,10 @@ export function setupHoneypot(client) {
   client.on(Events.MessageCreate, async message => {
     if (message.channelId !== HONEYPOT_CHANNEL_ID) return;
     if (message.author.bot) return;
+
+    // Admins are whitelisted so the honeypot can never ban/kick them, even if
+    // they post here intentionally. Uses the shared ADMIN_ROLE_ID config.
+    if (message.member && hasAdminRole(message.member.roles.cache)) return;
 
     try {
       await message.delete();
