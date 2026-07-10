@@ -52,17 +52,24 @@ export function setupHoneypot(client) {
     if (message.channelId !== HONEYPOT_CHANNEL_ID) return;
     if (message.author.bot) return;
 
-    // Admins are whitelisted so the honeypot can never ban/kick them, even if
-    // they post here intentionally. Uses the shared ADMIN_ROLE_ID config.
-    if (message.member && hasAdminRole(message.member.roles.cache)) return;
-
     try {
-      await message.delete();
-    } catch (err) {
-      console.error("Failed to delete honeypot trigger message:", err);
-    }
+      // Fetch the member when Discord did not hydrate it in the event so the
+      // admin exemption cannot be bypassed by a missing message.member value.
+      const member = message.member ?? await message.guild.members.fetch(message.author.id);
+      if (hasAdminRole(member.roles.cache)) return;
 
-    await punishAuthor(message);
+      try {
+        await message.delete();
+      } catch (err) {
+        console.error("Failed to delete honeypot trigger message:", err);
+      }
+
+      await punishAuthor(message);
+    } catch (err) {
+      // Fail safe: if member resolution or role inspection fails, do not risk
+      // punishing an administrator.
+      console.error("Failed to handle honeypot message:", err);
+    }
   });
 }
 
