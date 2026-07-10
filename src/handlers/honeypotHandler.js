@@ -1,4 +1,5 @@
 import { Events } from "discord.js";
+import { hasAdminRole } from "../config/constants.js";
 
 // Honeypot channel: a hidden channel that real users should never post in.
 // Bots/spam accounts that find it and send a message are banned on sight.
@@ -10,7 +11,7 @@ const HONEYPOT_CHANNEL_ID = process.env.HONEYPOT_CHANNEL_ID;
 // across restarts without persisting state.
 const HONEYPOT_MARKER = "<!-- trackerbot-honeypot-message -->";
 
-const HONEYPOT_WARNING = `${HONEYPOT_MARKER}\n**⚠️ Honeypot channel** — do not post here.`;
+const HONEYPOT_WARNING = `${HONEYPOT_MARKER}\n# ⛔️⚠️ DO NOT SEND MESSAGES HERE, YOU WILL BE BANNED INSTANTLY ⚠️⛔️`;
 
 const SIXTEEN_HOURS_MS = 16 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // hourly
@@ -52,12 +53,23 @@ export function setupHoneypot(client) {
     if (message.author.bot) return;
 
     try {
-      await message.delete();
-    } catch (err) {
-      console.error("Failed to delete honeypot trigger message:", err);
-    }
+      // Fetch the member when Discord did not hydrate it in the event so the
+      // admin exemption cannot be bypassed by a missing message.member value.
+      const member = message.member ?? await message.guild.members.fetch(message.author.id);
+      if (hasAdminRole(member.roles.cache)) return;
 
-    await punishAuthor(message);
+      try {
+        await message.delete();
+      } catch (err) {
+        console.error("Failed to delete honeypot trigger message:", err);
+      }
+
+      await punishAuthor(message);
+    } catch (err) {
+      // Fail safe: if member resolution or role inspection fails, do not risk
+      // punishing an administrator.
+      console.error("Failed to handle honeypot message:", err);
+    }
   });
 }
 
