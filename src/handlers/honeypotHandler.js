@@ -9,7 +9,7 @@ const HONEYPOT_CHANNEL_ID = process.env.HONEYPOT_CHANNEL_ID;
 
 // Stable marker embedded in the bot's warning message so we can detect it
 // across restarts without persisting state.
-const HONEYPOT_MARKER = "<!-- trackerbot-honeypot-message -->";
+const HONEYPOT_MARKER = "TrackerBot Honeypot";
 
 const HONEYPOT_WARNING = `${HONEYPOT_MARKER}\n# ⛔️⚠️ DO NOT SEND MESSAGES HERE, YOU WILL BE BANNED INSTANTLY ⚠️⛔️`;
 
