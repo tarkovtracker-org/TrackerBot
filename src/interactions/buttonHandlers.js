@@ -29,7 +29,7 @@ async function handleTicketCreation(interaction) {
   const member = interaction.member;
 
   const ticketCategory = guild.channels.cache.find(
-    c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === "ticket"
+    c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === "🆘 --- Support ---"
   );
 
   if (!ticketCategory) {
