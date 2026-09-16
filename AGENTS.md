@@ -9,7 +9,7 @@ TrackerBot — Discord.js v14 companion bot for TarkovTracker.org. Two services 
 - `bot.js` — Discord bot (slash commands, reaction roles, welcome automation, ticketing)
 - `webserver.js` — Express server serving public bug/data intake forms that open GitHub issues
 
-ESM throughout (`"type": "module"` in `package.json`). Requires Node.js 18+.
+ESM throughout (`"type": "module"` in `package.json`). Requires Node.js 18.17+.
 
 ## Architecture
 

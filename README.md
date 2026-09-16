@@ -8,7 +8,7 @@
 The Discord companion for the [TarkovTracker.org](https://tarkovtracker.org) community: slash commands, reaction roles, welcome automation, ticket creation, and a public bug-intake portal that forwards reports straight to GitHub.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/Node.js-18.17%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![discord.js](https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white)](https://discord.js.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/tarkovtracker-org/trackerbot/pulls)
 </div>
@@ -22,7 +22,7 @@ TrackerBot runs two services side by side:
 | **Discord bot** | `bot.js` | Slash commands, reaction roles, welcome automation, and ticket creation. |
 | **Bug intake web server** | `webserver.js` | Serves the public issue forms and forwards submissions to GitHub. |
 
-Requires **Node.js 18+**.
+Requires **Node.js 18.17+**.
 
 ## Features
 
