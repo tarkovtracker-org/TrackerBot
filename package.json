@@ -30,10 +30,10 @@
     "express-rate-limit": "^8.5.2"
   },
   "overrides": {
-    "undici": "^6.27.0",
+    "undici": "^6.28.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.4"
   }
 }
