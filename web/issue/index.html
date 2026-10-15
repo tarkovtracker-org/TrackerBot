@@ -24,13 +24,14 @@
 
         <form id="devIssueForm">
           <label for="title">Title *</label>
-          <input type="text" name="title" id="title" placeholder="Issue Title" required />
+          <input type="text" name="title" id="title" maxlength="200" placeholder="Issue Title" required />
 
           <label for="discord">Discord handle *</label>
-          <input type="text" name="discord" id="discord" placeholder="Username#1234" required />
+          <input type="text" name="discord" id="discord" maxlength="64" placeholder="Username#1234" required />
 
           <label for="description">Description *</label>
-          <textarea name="description" id="description" placeholder="Short summary of the issue, steps to reproduce, expected result, actual result, and any relevant links." required></textarea>
+          <textarea name="description" id="description" maxlength="8000" placeholder="Short summary of the issue, steps to reproduce, expected result, actual result, and any relevant links." required></textarea>
+          <p>Limits: title 200 characters, Discord handle 64, details 8,000. Both forms share 20 reports per connection in a rolling 12 hours, with at least 10 minutes between reports.</p>
 
           <!-- Honeypot field: hidden from real users, bots fill it. -->
           <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">
@@ -43,7 +44,8 @@
           </div>
         </form>
 
-        <div id="issueStatus" class="status"></div>
+        <div id="issueStatus" class="status" role="status" aria-live="polite"></div>
+        <p><a href="https://github.com/tarkovtracker-org/TarkovTracker/issues" target="_blank" rel="noopener noreferrer">Check published website reports</a>. If delivery is unconfirmed, keep this draft open and check before sending it again.</p>
       </section>
 
       <section class="card stack">
@@ -55,37 +57,12 @@
       </section>
     </main>
 
+    <script src="/report-form.js"></script>
     <script>
       const form = document.getElementById("devIssueForm");
       const statusBox = document.getElementById("issueStatus");
 
-      function showStatus(message, isError = false) {
-        statusBox.textContent = message;
-        statusBox.className = isError ? "status error" : "status success";
-      }
-
-      form.addEventListener("submit", async event => {
-        event.preventDefault();
-        showStatus("Submitting dev issue...");
-
-        const payload = Object.fromEntries(new FormData(form).entries());
-
-        try {
-          const res = await fetch("/issue", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-
-          if (!res.ok) throw new Error();
-
-          form.reset();
-          showStatus("Thanks! Your website issue is now tracked.");
-        } catch (err) {
-          console.error(err);
-          showStatus("Unable to send the website issue. Please try again.", true);
-        }
-      });
+      window.setupReportForm(form, statusBox, "/issue", "Thanks! Your website issue is now tracked.");
     </script>
   </body>
 </html>
