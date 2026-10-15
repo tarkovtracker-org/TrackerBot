@@ -30,7 +30,7 @@ function clientKey(ip) {
 }
 
 function sendError(res, status, code, message, details = {}) {
-  if (details.retryAfterSeconds) res.set("Retry-After", String(details.retryAfterSeconds));
+  if (details.retryAfterSeconds != null) res.set("Retry-After", String(details.retryAfterSeconds));
   return res.status(status).json({ error: { code, message }, ...details });
 }
 
@@ -64,15 +64,19 @@ function buildIssue(kind, fields) {
 
 function safeWait(seconds, time) {
   const wait = Math.ceil(seconds);
-  return Number.isSafeInteger(wait) && wait >= 0 && Number.isFinite(new Date(time + wait * 1000).getTime()) ? wait : 0;
+  return Number.isSafeInteger(wait) && wait >= 0 && Number.isFinite(new Date(time + wait * 1000).getTime()) ? wait : null;
 }
 
 function providerWait(headers, time) {
-  const retry = Number(headers["retry-after"]);
-  const retrySeconds = safeWait(Number.isFinite(retry) ? retry : (Date.parse(headers["retry-after"]) - time) / 1000, time);
-  const resetSeconds = String(headers["x-ratelimit-remaining"]) === "0"
-    ? safeWait((Number(headers["x-ratelimit-reset"]) * 1000 - time) / 1000, time) : 0;
-  return Math.max(retrySeconds, resetSeconds) || 60;
+  const retryHeader = headers["retry-after"];
+  const retry = Number(retryHeader);
+  const retrySeconds = retryHeader == null || String(retryHeader).trim() === "" ? null
+    : safeWait(Number.isFinite(retry) ? retry : Math.max(0, (Date.parse(retryHeader) - time) / 1000), time);
+  const resetHeader = headers["x-ratelimit-reset"];
+  const resetSeconds = String(headers["x-ratelimit-remaining"]) === "0" && resetHeader != null && String(resetHeader).trim() !== ""
+    ? safeWait(Math.max(0, (Number(resetHeader) * 1000 - time) / 1000), time) : null;
+  const waits = [retrySeconds, resetSeconds].filter(Number.isFinite);
+  return waits.length ? Math.max(...waits) : 60;
 }
 
 function deliveryError(err, time) {
@@ -135,7 +139,7 @@ export function createReportApp({ env = process.env, githubPost = axios.post, no
       const failure = deliveryError(err, now());
       admission.settle(failure.failed ? "failed" : "uncertain");
       logger.error("Report delivery failed", { route: kind, status: Number.isInteger(err?.response?.status) ? err.response.status : "no-response", code: failure.code });
-      const details = failure.retryAfterSeconds ? { retryAfterSeconds: failure.retryAfterSeconds } : {};
+      const details = failure.retryAfterSeconds != null ? { retryAfterSeconds: failure.retryAfterSeconds } : {};
       if (failure.resetAt) details.resetAt = failure.resetAt;
       return sendError(res, failure.status, failure.code, failure.message, details);
     }

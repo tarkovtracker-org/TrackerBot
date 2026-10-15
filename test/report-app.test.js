@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { request } from "node:http";
 import { createReportApp } from "../src/web/report-app.js";
 
 const fields = { title: "Test report", discord: "Test reporter", category: "Other", description: "Test observation", reference: "" };
@@ -22,7 +23,7 @@ async function fixture(t, githubPost = async () => ({ status: 201 })) {
   });
   const base = `http://127.0.0.1:${server.address().port}`;
   return {
-    app, calls, logs, setTime(value) { time = value; },
+    app, server, base, calls, logs, setTime(value) { time = value; },
     async post(route = "data", body = fields, extra = {}) {
       const response = await fetch(`${base}/${route}`, {
         method: "POST", headers: { "Content-Type": "application/json", Origin: "https://example.test", ...extra },
@@ -31,6 +32,27 @@ async function fixture(t, githubPost = async () => ({ status: 201 })) {
       return { status: response.status, headers: response.headers, body: await response.json() };
     }
   };
+}
+
+function stagedUpload(api, report = fields) {
+  const body = JSON.stringify(report);
+  let upload;
+  const result = new Promise((resolve, reject) => {
+    upload = request(`${api.base}/data`, { method: "POST", headers: {
+      "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), Origin: "https://example.test"
+    } }, response => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => { text += chunk; });
+      response.on("end", () => {
+        try { resolve({ status: response.statusCode, headers: response.headers, body: JSON.parse(text) }); } catch (error) { reject(error); }
+      });
+    });
+    upload.on("error", reject);
+    upload.flushHeaders();
+  });
+  result.catch(() => {}); // Teardown may close an upload after an assertion fails.
+  return { result, complete() { upload.end(body); } };
 }
 
 test("both routes share delivered-report policy and keep destination routing", async t => {
@@ -209,6 +231,7 @@ test("uncertain dedupe also covers equivalent route spellings", async t => {
 for (const scenario of [
   { name: "primary reset", status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "3600" }, seconds: 3600 },
   { name: "full Retry-After", status: 429, headers: { "retry-after": "7200" }, seconds: 7200 },
+  { name: "explicit zero Retry-After", status: 429, headers: { "retry-after": "0" }, seconds: 0 },
   { name: "longest provider reset", status: 403, headers: { "retry-after": "120", "x-ratelimit-remaining": "0", "x-ratelimit-reset": "3600" }, seconds: 3600 },
   { name: "secondary throttle without header", status: 403, headers: {}, message: "You have exceeded a secondary rate limit. PRIVATE_PROVIDER_DETAIL", seconds: 60 }
 ]) {
@@ -236,6 +259,75 @@ test("fifth cooldown rejection advertises the newly exhausted attempt wait", asy
   assert.equal(Date.parse(fifth.body.resetAt), 659000);
   api.setTime(659000);
   assert.equal((await api.post()).status, 200);
+});
+
+test("staged uploads combine reservation and attempt waits after body parsing", { timeout: 10000 }, async t => {
+  let rejectFirst;
+  let started;
+  const providerStarted = new Promise(resolve => { started = resolve; });
+  let deliveries = 0;
+  const api = await fixture(t, () => {
+    if (++deliveries > 1) return Promise.resolve({ status: 201 });
+    started();
+    return new Promise((resolve, reject) => { rejectFirst = reject; });
+  });
+  const admitted = new Promise(resolve => {
+    let headersSeen = 0;
+    // Express handles each request synchronously through admission, then waits
+    // for its body. No body completes before all five request events arrive.
+    api.server.on("request", () => { if (++headersSeen === 5) resolve(); });
+  });
+  const uploads = Array.from({ length: 5 }, () => stagedUpload(api));
+  await admitted;
+  assert.equal(api.calls.length, 0);
+  uploads[0].complete();
+  await providerStarted;
+  for (const upload of uploads.slice(1)) upload.complete();
+  const denials = await Promise.all(uploads.slice(1).map(upload => upload.result));
+  for (const denial of denials) {
+    assert.equal(denial.headers["retry-after"], "60");
+    assert.equal(Date.parse(denial.body.resetAt), 60000);
+  }
+  assert.equal(api.calls.length, 1);
+  rejectFirst({ response: { status: 422 } });
+  assert.equal((await uploads[0].result).status, 502);
+  api.setTime(10000);
+  assert.equal((await api.post()).headers.get("Retry-After"), "50");
+  api.setTime(60000);
+  assert.equal((await api.post()).status, 200);
+});
+
+test("pending different delivery cannot hide a known uncertain-report hold", { timeout: 10000 }, async t => {
+  let rejectPending;
+  let started;
+  const pendingStarted = new Promise(resolve => { started = resolve; });
+  let deliveries = 0;
+  const api = await fixture(t, () => {
+    if (++deliveries === 1) return Promise.reject({ code: "ECONNABORTED" });
+    started();
+    return new Promise((resolve, reject) => { rejectPending = reject; });
+  });
+  assert.equal((await api.post()).body.error.code, "delivery_uncertain");
+  api.setTime(600000);
+  const admitted = new Promise(resolve => {
+    let headersSeen = 0;
+    api.server.on("request", () => { if (++headersSeen === 2) resolve(); });
+  });
+  const different = stagedUpload(api, { ...fields, title: "Different report" });
+  const repeated = stagedUpload(api);
+  await admitted;
+  different.complete();
+  await pendingStarted;
+  repeated.complete();
+  const denied = await repeated.result;
+  assert.equal(denied.body.error.code, "delivery_uncertain");
+  assert.equal(denied.headers["retry-after"], "42600");
+  assert.equal(api.calls.length, 2);
+  rejectPending({ response: { status: 422 } });
+  assert.equal((await different.result).status, 502);
+  api.setTime(610000);
+  assert.equal((await api.post()).headers.get("Retry-After"), "42590");
+  assert.equal(api.calls.length, 2);
 });
 
 for (const scenario of [

@@ -124,3 +124,26 @@ test("cooldown starts at delivery completion rather than reservation", () => {
   setTime(610000);
   accept(policy, "next");
 });
+
+test("reservation denials share attempt wait without consuming another attempt", () => {
+  const { policy, setTime } = fixture();
+  for (let index = 0; index < 5; index++) assert.equal(policy.attempt("client").ok, true);
+  const first = policy.reserve("client", "first");
+  assert.equal(first.ok, true);
+  const denied = policy.reserve("client", "second");
+  assert.equal(denied.retryAfterSeconds, 60);
+  first.settle("failed");
+  setTime(60000);
+  assert.equal(policy.attempt("client").ok, true);
+  assert.equal(policy.reserve("client", "next").ok, true);
+});
+
+test("longer attempt wait preserves an uncertain-delivery warning", () => {
+  const { policy, setTime } = fixture();
+  policy.reserve("client", "uncertain").settle("uncertain");
+  setTime(43199999);
+  for (let index = 0; index < 5; index++) assert.equal(policy.attempt("client").ok, true);
+  const denied = policy.reserve("client", "uncertain");
+  assert.equal(denied.code, "delivery_uncertain");
+  assert.equal(denied.retryAfterSeconds, 60);
+});
