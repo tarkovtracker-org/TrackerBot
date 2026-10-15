@@ -127,11 +127,14 @@ test("cooldown starts at delivery completion rather than reservation", () => {
 
 test("reservation denials share attempt wait without consuming another attempt", () => {
   const { policy, setTime } = fixture();
-  for (let index = 0; index < 5; index++) assert.equal(policy.attempt("client").ok, true);
+  for (let index = 0; index < 5; index++) {
+    setTime(index * 1000);
+    assert.equal(policy.attempt("client").ok, true);
+  }
   const first = policy.reserve("client", "first");
   assert.equal(first.ok, true);
   const denied = policy.reserve("client", "second");
-  assert.equal(denied.retryAfterSeconds, 60);
+  assert.equal(denied.retryAfterSeconds, 56);
   first.settle("failed");
   setTime(60000);
   assert.equal(policy.attempt("client").ok, true);
