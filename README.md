@@ -61,9 +61,17 @@ Errors use `{ error: { code, message }, retryAfterSeconds?, resetAt? }`.
 Admission errors use HTTP `429` (`report_cooldown`, `report_window_limit`,
 `attempt_limit`, `report_in_progress`), capacity uses `503`, and uncertain repeat
 delivery uses `409`. Wait errors include numeric `Retry-After` seconds and an ISO
-`resetAt`. Validation/parser/origin errors use `400`/`413`/`403`. Proven provider
+`resetAt`. Validation/parser/origin errors use `400`/`413`/`415`/`403`. Proven provider
 rejections/connectivity failures use `502`/`503`; unconfirmed delivery uses `504`.
-Provider throttling supplies safe retry guidance. Provider bodies, tokens, IPs
+Provider throttling honors full `Retry-After` and exhausted-primary
+`x-ratelimit-reset` waits, taking the longer when both apply. Secondary throttles
+without timing headers use GitHub's minimum one-minute guidance. Neither server
+nor browser truncates a valid provider wait. Known client parser failures,
+including parameter overflow, excessive nesting and unsupported formats, return
+retryable typed `4xx` errors; they are not uncertain GitHub delivery.
+See [GitHub rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit)
+and [body-parser errors](https://expressjs.com/en/resources/middleware/body-parser/#errors).
+Provider bodies, tokens, IPs
 and report descriptions are never included in error output or delivery logs.
 
 **Rollout limitation: these controls are process-local memory, not durable or

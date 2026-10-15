@@ -8,6 +8,17 @@ import { createReportPolicy } from "./report-policy.js";
 
 const webDirectory = fileURLToPath(new URL("../../web", import.meta.url));
 export const FIELD_LIMITS = { title: 200, discord: 64, category: 64, reference: 500, description: 8000 };
+const parserErrors = new Map([
+  ["entity.too.large", [413, "report_too_large", "This report exceeds the 32 KiB request limit. Shorten the details while keeping the key evidence."]],
+  ["parameters.too.many", [413, "report_too_large", "The request contains too many fields. Keep your draft and reload the report form."]],
+  ["entity.parse.failed", [400, "invalid_request", "The report request could not be read. Keep your draft and reload the form before retrying."]],
+  ["querystring.parse.rangeError", [400, "invalid_request", "The request contains too many nested fields. Keep your draft and reload the report form."]],
+  ["request.aborted", [400, "invalid_request", "The report request was interrupted before delivery. Keep your draft and reload the report form."]],
+  ["request.size.invalid", [400, "invalid_request", "The report request size is invalid. Keep your draft and reload the report form."]],
+  ["charset.unsupported", [415, "unsupported_request", "The report format is unsupported. Keep your draft and reload the report form."]],
+  ["encoding.unsupported", [415, "unsupported_request", "The report format is unsupported. Keep your draft and reload the report form."]],
+  ["entity.verify.failed", [403, "invalid_request", "The report request could not be verified. Keep your draft and reload the report form."]]
+]);
 
 function clientKey(ip) {
   // Normalize hexadecimal mapped IPv4 before the existing IPv6 /56 grouping.
@@ -51,12 +62,27 @@ function buildIssue(kind, fields) {
   return { title: `[${fields.category}] ${fields.title}`, body: lines.join("\n") };
 }
 
-function deliveryError(err) {
+function safeWait(seconds, time) {
+  const wait = Math.ceil(seconds);
+  return Number.isSafeInteger(wait) && wait >= 0 && Number.isFinite(new Date(time + wait * 1000).getTime()) ? wait : 0;
+}
+
+function providerWait(headers, time) {
+  const retry = Number(headers["retry-after"]);
+  const retrySeconds = safeWait(Number.isFinite(retry) ? retry : (Date.parse(headers["retry-after"]) - time) / 1000, time);
+  const resetSeconds = String(headers["x-ratelimit-remaining"]) === "0"
+    ? safeWait((Number(headers["x-ratelimit-reset"]) * 1000 - time) / 1000, time) : 0;
+  return Math.max(retrySeconds, resetSeconds) || 60;
+}
+
+function deliveryError(err, time) {
   const status = err?.response?.status;
   const headers = err?.response?.headers ?? {};
-  if (status === 429 || (status === 403 && (headers["retry-after"] || headers["x-ratelimit-remaining"] === "0"))) {
-    const seconds = Number(headers["retry-after"]);
-    return { status: 503, code: "provider_rate_limit", message: "GitHub is temporarily limiting reports. Your report was not created. Keep your draft and wait before retrying.", retryAfterSeconds: Number.isFinite(seconds) && seconds > 0 ? Math.min(3600, Math.ceil(seconds)) : 60, failed: true };
+  const message = err?.response?.data?.message;
+  const secondary = typeof message === "string" && /secondary rate limit/i.test(message);
+  if (status === 429 || (status === 403 && (headers["retry-after"] || String(headers["x-ratelimit-remaining"]) === "0" || secondary))) {
+    const seconds = providerWait(headers, time);
+    return { status: 503, code: "provider_rate_limit", message: "GitHub is temporarily limiting reports. Your report was not created. Keep your draft and wait before retrying.", retryAfterSeconds: seconds, resetAt: new Date(time + seconds * 1000).toISOString(), failed: true };
   }
   if ([400, 401, 403, 404, 405, 410, 422].includes(status)) {
     return { status: 502, code: "delivery_rejected", message: "The report service could not deliver this report. It was not created. Keep your draft and contact support.", failed: true };
@@ -106,10 +132,11 @@ export function createReportApp({ env = process.env, githubPost = axios.post, no
       admission.settle("accepted");
       return res.json({ ok: true });
     } catch (err) {
-      const failure = deliveryError(err);
+      const failure = deliveryError(err, now());
       admission.settle(failure.failed ? "failed" : "uncertain");
       logger.error("Report delivery failed", { route: kind, status: Number.isInteger(err?.response?.status) ? err.response.status : "no-response", code: failure.code });
       const details = failure.retryAfterSeconds ? { retryAfterSeconds: failure.retryAfterSeconds } : {};
+      if (failure.resetAt) details.resetAt = failure.resetAt;
       return sendError(res, failure.status, failure.code, failure.message, details);
     }
   }
@@ -117,8 +144,8 @@ export function createReportApp({ env = process.env, githubPost = axios.post, no
   app.post("/issue", (req, res) => submit(req, res, "issue"));
   app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
-    if (err.type === "entity.too.large") return sendError(res, 413, "report_too_large", "This report exceeds the 32 KiB request limit. Shorten the details while keeping the key evidence.");
-    if (err.type === "entity.parse.failed") return sendError(res, 400, "invalid_request", "The report request could not be read. Keep your draft and reload the form before retrying.");
+    const parserError = parserErrors.get(err.type);
+    if (parserError) return sendError(res, ...parserError);
     logger.error("Report request failed", { type: "internal_error" });
     return sendError(res, 500, "internal_error", "The report service encountered an error. Keep your draft and contact support before repeating a submitted report.");
   });

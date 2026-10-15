@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
-async function loadForm(kind, fetch, search = "") {
-  const html = await readFile(new URL(`../web/${kind}/index.html`, import.meta.url), "utf8");
+async function loadForm(kind, fetch, search = "", transformHtml = html => html) {
+  const html = transformHtml(await readFile(new URL(`../web/${kind}/index.html`, import.meta.url), "utf8"));
   const button = { disabled: false };
   const status = { textContent: "", className: "" };
   const form = {
@@ -30,7 +30,7 @@ async function loadForm(kind, fetch, search = "") {
     FormData: class { entries() { return [["title", "Retained draft"]]; } },
     fetch
   });
-  for (const script of html.matchAll(/<script(?:\s+src="([^"]+)")?[^>]*>([\s\S]*?)<\/script>/g)) {
+  for (const script of html.matchAll(/<script(?:\s+src="([^"]+)")?[^>]*>([\s\S]*?)<\/script>/gi)) {
     const code = script[1]
       ? await readFile(new URL(`../web${script[1]}`, import.meta.url), "utf8")
       : script[2];
@@ -63,7 +63,7 @@ for (const kind of ["data", "issue"]) {
     assert.equal(ui.form.resetCount, 1);
   });
 
-  for (const code of ["invalid_report", "invalid_request", "report_too_large", "forbidden_origin", "provider_rate_limit", "delivery_rejected", "delivery_unavailable", "report_window_limit"]) {
+  for (const code of ["invalid_report", "invalid_request", "unsupported_request", "report_too_large", "forbidden_origin", "provider_rate_limit", "delivery_rejected", "delivery_unavailable", "report_window_limit"]) {
     test(`${kind}: preserves draft and presents typed ${code} error`, async () => {
       const message = `Safe error for ${code}`;
       const ui = await loadForm(kind, async () => ({ ok: false, status: 400, headers: { get() { return null; } }, async json() { return { error: { code, message } }; } }));
@@ -126,10 +126,34 @@ for (const kind of ["data", "issue"]) {
   });
 }
 
+test("browser retains the full provider wait beyond the reporting window", async () => {
+  let calls = 0;
+  const ui = await loadForm("issue", async () => {
+    calls++;
+    return { ok: false, status: 503, headers: { get() { return "50000"; } }, async json() { return { error: { code: "provider_rate_limit", message: "Wait for the provider." }, retryAfterSeconds: 50000 }; } };
+  });
+  await ui.submit();
+  ui.setTime(43200000);
+  await ui.submit();
+  assert.equal(calls, 1);
+  assert.equal(ui.form.resetCount, 0);
+  assert.equal(ui.button.disabled, false);
+});
+
 test("data prefills remain intact, including reference and leading newlines", async () => {
   const search = new URLSearchParams({ title: "Prefilled task", reference: "https://example.test/proof", description: "\n\nObserved details" }).toString();
   const ui = await loadForm("data", async () => {}, `?${search}`);
   assert.equal(ui.fields.get("title").value, "Prefilled task");
   assert.equal(ui.fields.get("reference").value, "https://example.test/proof");
   assert.equal(ui.fields.get("description").value, "\n\nObserved details");
+});
+
+test("fixture loads case-insensitive HTML script tags", async () => {
+  const ui = await loadForm("issue", async () => ({
+    ok: false, status: 400, headers: { get() { return null; } },
+    async json() { return { error: { code: "invalid_report", message: "Keep the draft." } }; }
+  }), "", html => html.replaceAll("<script", "<SCRIPT").replaceAll("</script>", "</SCRIPT>"));
+  await ui.submit();
+  assert.match(ui.status.textContent, /Keep the draft/);
+  assert.equal(ui.form.resetCount, 0);
 });

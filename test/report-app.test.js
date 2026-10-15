@@ -205,3 +205,39 @@ test("uncertain dedupe also covers equivalent route spellings", async t => {
   assert.equal((await api.post("DATA/")).status, 409);
   assert.equal(api.calls.length, 1);
 });
+
+for (const scenario of [
+  { name: "primary reset", status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "3600" }, seconds: 3600 },
+  { name: "full Retry-After", status: 429, headers: { "retry-after": "7200" }, seconds: 7200 },
+  { name: "longest provider reset", status: 403, headers: { "retry-after": "120", "x-ratelimit-remaining": "0", "x-ratelimit-reset": "3600" }, seconds: 3600 },
+  { name: "secondary throttle without header", status: 403, headers: {}, message: "You have exceeded a secondary rate limit. PRIVATE_PROVIDER_DETAIL", seconds: 60 }
+]) {
+  test(`GitHub ${scenario.name} returns full safe provider wait`, async t => {
+    const api = await fixture(t, async () => { throw { response: { status: scenario.status, headers: scenario.headers, data: { message: scenario.message } } }; });
+    const result = await api.post();
+    assert.equal(result.body.error.code, "provider_rate_limit");
+    assert.equal(result.headers.get("Retry-After"), String(scenario.seconds));
+    assert.equal(result.body.retryAfterSeconds, scenario.seconds);
+    assert.equal(Date.parse(result.body.resetAt), scenario.seconds * 1000);
+    assert.doesNotMatch(JSON.stringify([result, api.logs]), /PRIVATE_PROVIDER_DETAIL/);
+  });
+}
+
+for (const scenario of [
+  { name: "parameter overflow", body: Array.from({ length: 1001 }, (_, index) => `p${index}=x`).join("&"), headers: { "Content-Type": "application/x-www-form-urlencoded" }, status: 413, code: "report_too_large" },
+  { name: "unsupported JSON charset", body: "{}", headers: { "Content-Type": "application/json; charset=shift_jis" }, status: 415, code: "unsupported_request" },
+  { name: "unsupported form charset", body: "title=test", headers: { "Content-Type": "application/x-www-form-urlencoded; charset=shift_jis" }, status: 415, code: "unsupported_request" },
+  { name: "unsupported encoding", body: "{}", headers: { "Content-Encoding": "compress" }, status: 415, code: "unsupported_request" },
+  { name: "excessive form nesting", body: `a${"[b]".repeat(40)}=x`, headers: { "Content-Type": "application/x-www-form-urlencoded" }, status: 400, code: "invalid_request" }
+]) {
+  test(`parser ${scenario.name} is a retryable client error without delivery`, async t => {
+    const api = await fixture(t);
+    assert.ok(Buffer.byteLength(scenario.body) < 32768);
+    const result = await api.post("data", scenario.body, scenario.headers);
+    assert.equal(result.status, scenario.status);
+    assert.equal(result.body.error.code, scenario.code);
+    assert.equal(api.calls.length, 0);
+    assert.equal(api.logs.length, 0);
+    assert.equal((await api.post()).status, 200);
+  });
+}

@@ -7,7 +7,7 @@ window.setupReportForm = function setupReportForm(form, statusBox, endpoint, suc
   let waitUntil = 0;
   const knownCodes = new Set([
     "report_cooldown", "report_window_limit", "report_in_progress", "report_capacity",
-    "attempt_limit", "invalid_report", "invalid_request", "report_too_large",
+    "attempt_limit", "invalid_report", "invalid_request", "unsupported_request", "report_too_large",
     "forbidden_origin", "provider_rate_limit", "delivery_rejected",
     "delivery_unavailable", "delivery_uncertain", "internal_error"
   ]);
@@ -21,7 +21,8 @@ window.setupReportForm = function setupReportForm(form, statusBox, endpoint, suc
   }
   function retrySeconds(response, data) {
     const value = Number(data?.retryAfterSeconds ?? response.headers.get("Retry-After"));
-    return Number.isFinite(value) && value > 0 ? Math.min(value, 43200) : 0;
+    const seconds = Math.ceil(value);
+    return Number.isSafeInteger(seconds) && seconds > 0 && Number.isFinite(new Date(Date.now() + seconds * 1000).getTime()) ? seconds : 0;
   }
   function invalidField() {
     return Array.from(form.querySelectorAll("[maxlength]")).find(field => field.value.trim().length > field.maxLength);
