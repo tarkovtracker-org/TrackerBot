@@ -23,10 +23,10 @@
 
         <form id="dataIssueForm">
           <label for="title">Title *</label>
-          <input type="text" name="title" id="title" placeholder="Quest Name - Issue" required />
+          <input type="text" name="title" id="title" maxlength="200" placeholder="Quest Name - Issue" required />
 
           <label for="discord">Discord handle *</label>
-          <input type="text" name="discord" id="discord" placeholder="Username#1234" required />
+          <input type="text" name="discord" id="discord" maxlength="64" placeholder="Username#1234" required />
 
           <label for="category">Impacted area *</label>
           <select name="category" id="category" required>
@@ -40,10 +40,11 @@
           </select>
 
           <label for="reference">Reference link (optional)</label>
-          <input type="text" name="reference" id="reference" placeholder="Link to a source or screenshot (optional)" />
+          <input type="text" name="reference" id="reference" maxlength="500" placeholder="Link to a source or screenshot (optional)" />
 
           <label for="description">Details *</label>
-          <textarea name="description" id="description" placeholder="Describe what is wrong, the correct value, and how it was verified." required></textarea>
+          <textarea name="description" id="description" maxlength="8000" placeholder="Describe what is wrong, the correct value, and how it was verified." required></textarea>
+          <p>Limits: title 200 characters, Discord handle 64, reference 500, details 8,000. Both forms share five submission attempts per rolling minute, 20 reports per client IP in a rolling 12 hours, and at least 10 minutes between reports. Invalid submissions count as attempts. People sharing an IP address or IPv6 prefix share these limits.</p>
 
           <!-- Honeypot field: hidden from real users, bots fill it. -->
           <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">
@@ -56,7 +57,8 @@
           </div>
         </form>
 
-        <div id="dataStatus" class="status"></div>
+        <div id="dataStatus" class="status" role="status" aria-live="polite"></div>
+        <p><a href="https://github.com/tarkovtracker-org/tarkov-data-overlay/issues" target="_blank" rel="noopener noreferrer">Check published data reports</a>. If delivery is unconfirmed, keep this draft open and check before sending it again.</p>
       </section>
 
       <section class="card stack">
@@ -68,6 +70,7 @@
       </section>
     </main>
 
+    <script src="/report-form.js"></script>
     <script>
       const form = document.getElementById("dataIssueForm");
       const statusBox = document.getElementById("dataStatus");
@@ -105,30 +108,7 @@
         if (descriptionInput) descriptionInput.value = descriptionParam;
       }
 
-      function showStatus(message, isError = false) {
-        statusBox.textContent = message;
-        statusBox.className = isError ? "status error" : "status success";
-      }
-
-      form.addEventListener("submit", async event => {
-        event.preventDefault();
-        showStatus("Submitting data issue...");
-        const payload = Object.fromEntries(new FormData(form).entries());
-
-        try {
-          const res = await fetch("/data", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          if (!res.ok) throw new Error();
-          form.reset();
-          showStatus("Thanks! Your data report is now tracked.");
-        } catch (err) {
-          console.error(err);
-          showStatus("Unable to send the data report. Please try again.", true);
-        }
-      });
+      window.setupReportForm(form, statusBox, "/data", "Thanks! Your data report is now tracked.");
     </script>
   </body>
 </html>

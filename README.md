@@ -22,6 +22,76 @@ TrackerBot runs two services side by side:
 | **Discord bot** | `bot.js` | Slash commands, reaction roles, welcome automation, and ticket creation. |
 | **Bug intake web server** | `webserver.js` | Serves the public issue forms and forwards submissions to GitHub. |
 
+### Reporting limits and errors
+
+`POST /data` and `POST /issue` share one reporting policy for each client IP
+(with the existing IPv6 `/56` grouping). The allowance is **20 delivered reports
+in a rolling 12 hours**, with **at least 10 minutes between deliveries**. A
+delivery exactly 12 hours old leaves the allowance; a new report is admitted
+exactly at the 10-minute boundary. IPv4-mapped addresses use the same key as IPv4,
+including dotted and hexadecimal IPv6 representations. Switching forms does not
+reset either limit. Users sharing an IP or IPv6 prefix share these limits.
+
+The server reserves a slot before awaiting GitHub, so concurrent requests cannot
+both pass. Confirmed GitHub issue creation (`201`) consumes the allowance and
+starts the cooldown at delivery completion. Validation, origin/parser errors,
+honeypot submissions and proven delivery rejections do not count as delivered
+reports. A separate shared **five-attempt rolling minute** budget runs before
+body parsing and includes rejected/invalid requests. Denials return the longest
+active attempt/window/cooldown wait rather than an earlier partial reset.
+
+Timeouts, connection resets, unexpected provider responses and GitHub `5xx`
+responses are **unconfirmed delivery**, not proof that no issue was created.
+They conservatively reserve allowance and cooldown. A hash of the same report is
+held against automatic repetition for 12 hours, bounded by the same retention
+window; this is not a durable idempotency guarantee. Check the published issue
+list or contact support before repeating it. Different reports may be sent after
+the ordinary cooldown if allowance remains. No automatic GitHub retry occurs.
+
+Both forms preserve their entered fields on failure, disable double submission,
+and display safe typed server errors. Unknown network/proxy/success responses
+keep the draft and stop automatic repetition in that page. The displayed wait is
+advisory; every new request is checked by the server. Length limits are visible
+and enforced without silently truncating evidence: title 200, Discord handle 64,
+category 64, reference 500, details 8,000 characters; request bodies are capped at
+32 KiB. Successful submission resets the form. Drafts remain in the open page,
+not persistent browser storage; copy them before reloading.
+
+Errors use `{ error: { code, message }, retryAfterSeconds?, resetAt? }`.
+Admission errors use HTTP `429` (`report_cooldown`, `report_window_limit`,
+`attempt_limit`, `report_in_progress`), capacity uses `503`, and uncertain repeat
+delivery uses `409`. Wait errors include numeric `Retry-After` seconds and an ISO
+`resetAt`. Validation/parser/origin errors use `400`/`413`/`415`/`403`. Proven provider
+rejections/connectivity failures use `502`/`503`; unconfirmed delivery uses `504`.
+Provider throttling honors full `Retry-After` and exhausted-primary
+`x-ratelimit-reset` waits, taking the longer when both apply. Secondary throttles
+without timing headers use GitHub's minimum one-minute guidance. Neither server
+nor browser truncates a valid provider wait. Known client parser failures,
+including parameter overflow, excessive nesting and unsupported formats, return
+retryable typed `4xx` errors; they are not uncertain GitHub delivery.
+See [GitHub rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit)
+and [body-parser errors](https://expressjs.com/en/resources/middleware/body-parser/#errors).
+Provider bodies, tokens, IPs
+and report descriptions are never included in error output or delivery logs.
+
+**Rollout limitation: these controls are process-local memory, not durable or
+shared across workers/hosts.** A restart clears allowances, cooldowns and
+uncertain-report holds. There is no existing persistent limiter store or hosting
+manifest in this repository. State is capped at 10,000 clients and stale entries
+are removed; at capacity, new clients receive a safe busy response instead of
+evicting active limits. Strict enforcement across restarts or multiple processes
+needs an operator-approved persistent/shared store after hosting is established.
+This change adds no infrastructure or production settings and is not evidence
+that the deployed topology is ready for strict enforcement.
+
+`trust proxy = 1` remains unchanged. Before rollout, operators must verify that
+the origin is reachable only through the intended trusted proxy and that it
+overwrites client forwarding headers, and confirm the actual process topology.
+Otherwise clients may spoof the limiter key or unrelated users may share one.
+Do not fix that by trusting arbitrary forwarded headers. The deployed form origin
+must also match the existing `ALLOWED_ORIGINS` setting. Credential, proxy-trust and
+production configuration changes require separate approval.
+
 Requires **Node.js 18.17+**.
 
 ## Features
