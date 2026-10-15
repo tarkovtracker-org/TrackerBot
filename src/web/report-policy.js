@@ -67,11 +67,14 @@ export function createReportPolicy({ now = Date.now, maxClients = 10_000 } = {})
     const state = stateFor(key, time);
     if (state.ok === false) return state;
     const reportingBlock = blocked(state, time);
-    if (state.attempts.length >= ATTEMPT_LIMIT) {
+    const exhausted = state.attempts.length >= ATTEMPT_LIMIT;
+    if (!exhausted) state.attempts.push(time);
+    // An eligible fifth attempt still passes. A rejected fifth attempt must
+    // advertise the wait its newly exhausted attempt budget imposes on retry.
+    if (exhausted || (reportingBlock && state.attempts.length >= ATTEMPT_LIMIT)) {
       const attemptBlock = denied("attempt_limit", "Too many submission attempts. Keep your draft and wait one minute.", state.attempts[0] + ATTEMPT_WINDOW_MS, time);
       return reportingBlock && Date.parse(reportingBlock.resetAt) > Date.parse(attemptBlock.resetAt) ? reportingBlock : attemptBlock;
     }
-    state.attempts.push(time);
     return reportingBlock ?? { ok: true };
   }
   function reserve(key, fingerprint) {

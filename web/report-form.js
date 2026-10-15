@@ -11,9 +11,9 @@ window.setupReportForm = function setupReportForm(form, statusBox, endpoint, suc
     "forbidden_origin", "provider_rate_limit", "delivery_rejected",
     "delivery_unavailable", "delivery_uncertain", "internal_error"
   ]);
-  function showStatus(message, isError = false) {
+  function showStatus(message, isError = false, pending = false) {
     statusBox.textContent = message;
-    statusBox.className = isError ? "status error" : "status success";
+    statusBox.className = pending ? "status" : isError ? "status error" : "status success";
   }
   function unknownDelivery() {
     uncertain = true;
@@ -41,7 +41,7 @@ window.setupReportForm = function setupReportForm(form, statusBox, endpoint, suc
     }
     submitting = true;
     button.disabled = true;
-    showStatus("Submitting report...");
+    showStatus("Submitting report...", false, true);
     try {
       const payload = Object.fromEntries(new FormData(form).entries());
       const response = await fetch(endpoint, {

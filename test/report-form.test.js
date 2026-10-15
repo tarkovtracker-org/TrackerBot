@@ -30,7 +30,7 @@ async function loadForm(kind, fetch, search = "", transformHtml = html => html) 
     FormData: class { entries() { return [["title", "Retained draft"]]; } },
     fetch
   });
-  for (const script of html.matchAll(/<script(?:\s+src="([^"]+)")?[^>]*>([\s\S]*?)<\/script>/gi)) {
+  for (const script of html.matchAll(/<script\b(?:\s+src="([^"]+)")?[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi)) {
     const code = script[1]
       ? await readFile(new URL(`../web${script[1]}`, import.meta.url), "utf8")
       : script[2];
@@ -56,11 +56,13 @@ for (const kind of ["data", "issue"]) {
     const ui = await loadForm(kind, () => { calls++; return new Promise(resolve => { release = resolve; }); });
     const first = ui.submit();
     assert.equal(ui.button.disabled, true);
+    assert.equal(ui.status.className, "status");
     await ui.submit();
     assert.equal(calls, 1);
     release({ ok: true, async json() { return { ok: true }; } });
     await first;
     assert.equal(ui.form.resetCount, 1);
+    assert.equal(ui.status.className, "status success");
   });
 
   for (const code of ["invalid_report", "invalid_request", "unsupported_request", "report_too_large", "forbidden_origin", "provider_rate_limit", "delivery_rejected", "delivery_unavailable", "report_window_limit"]) {
@@ -123,6 +125,7 @@ for (const kind of ["data", "issue"]) {
     assert.match(ui.status.textContent, /8000/);
     assert.match(ui.html, /maxlength="8000"/);
     assert.match(ui.html, /aria-live="polite"/);
+    assert.match(ui.html, /per client IP/);
   });
 }
 
@@ -148,11 +151,11 @@ test("data prefills remain intact, including reference and leading newlines", as
   assert.equal(ui.fields.get("description").value, "\n\nObserved details");
 });
 
-test("fixture loads case-insensitive HTML script tags", async () => {
+test("fixture loads case-insensitive script tags with closing whitespace", async () => {
   const ui = await loadForm("issue", async () => ({
     ok: false, status: 400, headers: { get() { return null; } },
     async json() { return { error: { code: "invalid_report", message: "Keep the draft." } }; }
-  }), "", html => html.replaceAll("<script", "<SCRIPT").replaceAll("</script>", "</SCRIPT>"));
+  }), "", html => html.replaceAll("<script", "<SCRIPT").replaceAll("</script>", "</SCRIPT >"));
   await ui.submit();
   assert.match(ui.status.textContent, /Keep the draft/);
   assert.equal(ui.form.resetCount, 0);

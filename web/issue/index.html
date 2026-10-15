@@ -31,7 +31,7 @@
 
           <label for="description">Description *</label>
           <textarea name="description" id="description" maxlength="8000" placeholder="Short summary of the issue, steps to reproduce, expected result, actual result, and any relevant links." required></textarea>
-          <p>Limits: title 200 characters, Discord handle 64, details 8,000. Both forms share 20 reports per connection in a rolling 12 hours, with at least 10 minutes between reports.</p>
+          <p>Limits: title 200 characters, Discord handle 64, details 8,000. Both forms share 20 reports per client IP in a rolling 12 hours, with at least 10 minutes between reports. People sharing an IP address or IPv6 prefix share these limits.</p>
 
           <!-- Honeypot field: hidden from real users, bots fill it. -->
           <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">

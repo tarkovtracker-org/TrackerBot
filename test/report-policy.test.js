@@ -73,7 +73,7 @@ test("attempt and cooldown overlap chooses either longest constraint", () => {
   accept(policy);
   for (let index = 0; index < 6; index++) assert.equal(policy.attempt("client").retryAfterSeconds, 600);
   setTime(599000);
-  for (let index = 0; index < 5; index++) assert.equal(policy.attempt("client").code, "report_cooldown");
+  for (let index = 0; index < 4; index++) assert.equal(policy.attempt("client").code, "report_cooldown");
   const attempts = policy.attempt("client");
   assert.equal(attempts.code, "attempt_limit");
   assert.equal(attempts.retryAfterSeconds, 60);
@@ -84,8 +84,11 @@ test("pending reservation blocks concurrent calls; failure releases allowance", 
   const first = policy.reserve("client", "first");
   assert.equal(policy.reserve("client", "second").code, "report_in_progress");
   first.settle("failed");
-  accept(policy, "second");
+  const second = policy.reserve("client", "second");
+  assert.equal(second.ok, true);
   first.settle("accepted"); // stale/double settlement cannot mutate the successor.
+  assert.equal(policy.reserve("client", "third").code, "report_in_progress");
+  second.settle("accepted");
   assert.equal(policy.reserve("client", "third").code, "report_cooldown");
 });
 

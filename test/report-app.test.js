@@ -223,6 +223,21 @@ for (const scenario of [
   });
 }
 
+test("fifth cooldown rejection advertises the newly exhausted attempt wait", async t => {
+  const api = await fixture(t);
+  await api.post();
+  api.setTime(599000);
+  for (let index = 0; index < 4; index++) {
+    assert.equal((await api.post()).headers.get("Retry-After"), "1");
+  }
+  const fifth = await api.post();
+  assert.equal(fifth.body.error.code, "attempt_limit");
+  assert.equal(fifth.headers.get("Retry-After"), "60");
+  assert.equal(Date.parse(fifth.body.resetAt), 659000);
+  api.setTime(659000);
+  assert.equal((await api.post()).status, 200);
+});
+
 for (const scenario of [
   { name: "parameter overflow", body: Array.from({ length: 1001 }, (_, index) => `p${index}=x`).join("&"), headers: { "Content-Type": "application/x-www-form-urlencoded" }, status: 413, code: "report_too_large" },
   { name: "unsupported JSON charset", body: "{}", headers: { "Content-Type": "application/json; charset=shift_jis" }, status: 415, code: "unsupported_request" },
