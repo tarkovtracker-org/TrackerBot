@@ -44,7 +44,7 @@
 
           <label for="description">Details *</label>
           <textarea name="description" id="description" maxlength="8000" placeholder="Describe what is wrong, the correct value, and how it was verified." required></textarea>
-          <p>Limits: title 200 characters, Discord handle 64, reference 500, details 8,000. Both forms share 20 reports per client IP in a rolling 12 hours, with at least 10 minutes between reports. People sharing an IP address or IPv6 prefix share these limits.</p>
+          <p>Limits: title 200 characters, Discord handle 64, reference 500, details 8,000. Both forms share five submission attempts per rolling minute, 20 reports per client IP in a rolling 12 hours, and at least 10 minutes between reports. Invalid submissions count as attempts. People sharing an IP address or IPv6 prefix share these limits.</p>
 
           <!-- Honeypot field: hidden from real users, bots fill it. -->
           <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">

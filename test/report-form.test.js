@@ -30,7 +30,7 @@ async function loadForm(kind, fetch, search = "", transformHtml = html => html) 
     FormData: class { entries() { return [["title", "Retained draft"]]; } },
     fetch
   });
-  for (const script of html.matchAll(/<script\b(?:\s+src="([^"]+)")?[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi)) {
+  for (const script of html.matchAll(/<script(?=[\s/>])(?:\s+src="([^"]+)")?[^>]*>([\s\S]*?)<\/script\s*>/gi)) {
     const code = script[1]
       ? await readFile(new URL(`../web${script[1]}`, import.meta.url), "utf8")
       : script[2];
@@ -156,6 +156,18 @@ test("fixture loads case-insensitive script tags with closing whitespace", async
     ok: false, status: 400, headers: { get() { return null; } },
     async json() { return { error: { code: "invalid_report", message: "Keep the draft." } }; }
   }), "", html => html.replaceAll("<script", "<SCRIPT").replaceAll("</script>", "</SCRIPT >"));
+  await ui.submit();
+  assert.match(ui.status.textContent, /Keep the draft/);
+  assert.equal(ui.form.resetCount, 0);
+});
+
+test("fixture ignores script-like tag names in HTML and JavaScript strings", async () => {
+  const ui = await loadForm("issue", async () => ({
+    ok: false, status: 400, headers: { get() { return null; } },
+    async json() { return { error: { code: "invalid_report", message: "Keep the draft." } }; }
+  }), "", html => html
+    .replace("<script>", "<script-custom>Ignored</script-custom><script>")
+    .replace("const form =", 'const scriptText = "</script-custom>"; const form ='));
   await ui.submit();
   assert.match(ui.status.textContent, /Keep the draft/);
   assert.equal(ui.form.resetCount, 0);
