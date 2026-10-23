@@ -13,7 +13,7 @@ window.setupReportForm = function setupReportForm(form, statusBox, endpoint, suc
   ]);
   function showStatus(message, isError = false, pending = false) {
     statusBox.textContent = message;
-    statusBox.className = pending ? "status" : isError ? "status error" : "status success";
+    statusBox.className = pending ? "status pending" : isError ? "status error" : "status success";
   }
   function unknownDelivery() {
     uncertain = true;

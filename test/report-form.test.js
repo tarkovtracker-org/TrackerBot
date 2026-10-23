@@ -21,7 +21,9 @@ async function loadForm(kind, fetch, search = "", transformHtml = html => html) 
   const context = vm.createContext({
     document: { getElementById(id) {
       if (id.endsWith("Form")) return form;
-      if (id.endsWith("Status")) return status;
+      if (id.endsWith("Status")) {
+        return html.includes(`id="${id}"`) ? status : null;
+      }
       if (!fields.has(id)) fields.set(id, { value: "", options: [] });
       return fields.get(id);
     } },
@@ -56,7 +58,12 @@ for (const kind of ["data", "issue"]) {
     const ui = await loadForm(kind, () => { calls++; return new Promise(resolve => { release = resolve; }); });
     const first = ui.submit();
     assert.equal(ui.button.disabled, true);
-    assert.equal(ui.status.className, "status");
+    assert.equal(ui.status.className, "status pending");
+    assert.equal(ui.status.textContent, "Submitting report...");
+    const css = await readFile(new URL("../web/styles.css", import.meta.url), "utf8");
+    const pendingStyle = css.match(/\.status\.pending\s*\{([^}]+)\}/)?.[1];
+    assert.ok(pendingStyle, "pending has an explicit CSS rule");
+    assert.match(pendingStyle, /display:\s*block/);
     await ui.submit();
     assert.equal(calls, 1);
     release({ ok: true, async json() { return { ok: true }; } });
@@ -128,6 +135,12 @@ for (const kind of ["data", "issue"]) {
     assert.match(ui.html, /per client IP/);
   });
 }
+
+test("data reports link to the public website issue list, not the private overlay", async () => {
+  const ui = await loadForm("data", async () => {});
+  assert.match(ui.html, /href="https:\/\/github\.com\/tarkovtracker-org\/TarkovTracker\/issues"/);
+  assert.doesNotMatch(ui.html, /href="[^"]*tarkov-data-overlay/);
+});
 
 test("browser retains the full provider wait beyond the reporting window", async () => {
   let calls = 0;

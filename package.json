@@ -6,6 +6,8 @@
   "main": "bot.js",
   "scripts": {
     "test": "node --test",
+    "build": "node scripts/check-syntax.js",
+    "audit:prod": "npm audit --omit=dev --audit-level=low",
     "start:bot": "node bot.js",
     "start:web": "node webserver.js",
     "start": "concurrently -n bot,web \"npm:start:bot\" \"npm:start:web\""

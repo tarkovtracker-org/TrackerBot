@@ -202,6 +202,13 @@ button.btn-solid:hover {
   display: none;
 }
 
+.status.pending {
+  display: block;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
+
 .status.success {
   display: block;
   background: rgba(141, 168, 86, 0.12);

@@ -21,4 +21,13 @@ export function ensureEnvVars(vars = requiredEnvVars) {
   vars.forEach(getRequiredEnv);
 }
 
-export { requiredEnvVars };
+const requiredWebEnvVars = ["GITHUB_TOKEN", "REPO_DEV"];
+
+export function ensureWebEnvVars(env = process.env) {
+  const missing = requiredWebEnvVars.filter(name => !env[name]?.trim());
+  if (missing.length) {
+    throw new Error(`Missing required environment variables for webserver: ${missing.join(", ")}`);
+  }
+}
+
+export { requiredEnvVars, requiredWebEnvVars };

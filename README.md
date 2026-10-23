@@ -24,6 +24,12 @@ TrackerBot runs two services side by side:
 
 ### Reporting limits and errors
 
+Both report forms currently create issues in `REPO_DEV`, configured as
+`tarkovtracker-org/TarkovTracker`. The data overlay repository is private, so
+`REPO_DATA_REPORT` is no longer required and any existing value is ignored.
+Data reports retain their category-prefixed title, category, reference and details.
+Both forms link to the public TarkovTracker issue list for delivery checks.
+
 `POST /data` and `POST /issue` share one reporting policy for each client IP
 (with the existing IPv6 `/56` grouping). The allowance is **20 delivered reports
 in a rolling 12 hours**, with **at least 10 minutes between deliveries**. A
@@ -109,20 +115,47 @@ Requires **Node.js 18.17+**.
 ### 1. Install dependencies
 
 ```bash
-npm install
+npm ci
+npm run build
 ```
+
+This project has no bundle or generated build output. `npm run build` syntax-checks
+all JavaScript files without starting either service. CI runs the same command,
+the tests, and `npm run audit:prod`; production dependency advisories fail CI.
 
 ### 2. Configure environment variables
 
 Copy `.env.example` to `.env` and fill in every value:
 
 - **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_ROLE_ID` (comma-separated Discord role IDs granting admin-only commands such as `/wipe`)
-- **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV`, `REPO_DATA_REPORT`
+- **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV=tarkovtracker-org/TarkovTracker` for both forms. Legacy `REPO_DATA_REPORT` is ignored.
 - **Channel IDs for automated posts:** `WELCOME_CHANNEL_ID`; optional `HONEYPOT_CHANNEL_ID` (a hidden channel — anyone who posts in it is banned on sight, with a kick fallback; messages older than 16h are swept hourly)
 - **Role IDs:** `PANEL_ADMIN_ROLE_ID`, `AUTO_ROLE_ID_1`–`AUTO_ROLE_ID_4` (auto-roles for new members); optional `ALLOWED_COMMAND_ROLE_IDS` (comma-separated role IDs allowed to use member commands, falls back to a built-in default)
 - **Web server:** `PORT`, `ALLOWED_ORIGINS` (comma-separated origins, exact match)
 
-> `GITHUB_TOKEN` needs `repo` scope (or equivalent granular access) to create issues in the configured repositories. For production, prefer a fine-grained PAT scoped to `issues:write` on the two target repos only.
+> The deployed `GITHUB_TOKEN` needs issue-write access to `tarkovtracker-org/TarkovTracker`. Prefer a fine-grained PAT with **Issues: write** on that repository only. Redirecting data reports removes the private-overlay dependency, but does not grant permissions to a token that cannot create website issues.
+
+### Production rollout checklist
+
+- Use `npm ci`, `npm run build`, and `npm start` in the hosting configuration.
+  `npm start` launches one bot and one web process per invocation; verify the
+  actual replica count and deployment overlap rather than inferring it from the command.
+- Set `REPO_DEV=tarkovtracker-org/TarkovTracker`. Verify the deployed token's
+  issue-write access without sharing credentials. Both report routes use that destination.
+- Correct the operator's origin-list typos (`https//` is not `https://`). A valid
+  list for the reported domains is:
+  `https://tarkovtracker.org,https://www.tarkovtracker.org,https://trackerbot.nivmizz7.dev,https://www.trackerbot.nivmizz7.dev`.
+  A preview hostname must be added separately if its forms are tested. Do not
+  disable origin checking just to make a preview pass.
+- Verify that Node is not directly Internet-accessible, that the trusted proxy
+  overwrites forwarding headers, and that distinct visitors retain distinct limiter keys.
+  Leave `trust proxy = 1` unchanged until the real proxy path is established.
+- Confirm a single serving web process, including during deployments, and explicitly
+  accept that restarts clear limits and uncertain-delivery holds. If strict limits
+  across replicas or restarts are required, approve a shared/persistent store before rollout.
+- A successful `/health` response only proves the HTTP process is running, not
+  GitHub delivery or correct proxy isolation. Coolify configuration and production
+  credentials cannot be verified from repository tests.
 
 ### 3. Run the services locally
 

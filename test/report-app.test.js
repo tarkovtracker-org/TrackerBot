@@ -5,12 +5,12 @@ import { request } from "node:http";
 import { createReportApp } from "../src/web/report-app.js";
 
 const fields = { title: "Test report", discord: "Test reporter", category: "Other", description: "Test observation", reference: "" };
-async function fixture(t, githubPost = async () => ({ status: 201 })) {
+async function fixture(t, githubPost = async () => ({ status: 201 }), env = {}) {
   let time = 0;
   const calls = [];
   const logs = [];
   const app = createReportApp({
-    env: { GITHUB_TOKEN: "test-only-key", REPO_DEV: "example/dev", REPO_DATA_REPORT: "example/data", ALLOWED_ORIGINS: "https://example.test" },
+    env: { GITHUB_TOKEN: "test-only-key", REPO_DEV: "example/dev", REPO_DATA_REPORT: "example/private-overlay", ALLOWED_ORIGINS: "https://example.test", ...env },
     now: () => time,
     logger: { error(...args) { logs.push(args); } },
     githubPost(...args) { calls.push(args); return githubPost(...args); }
@@ -55,7 +55,7 @@ function stagedUpload(api, report = fields) {
   return { result, complete() { upload.end(body); } };
 }
 
-test("both routes share delivered-report policy and keep destination routing", async t => {
+test("both routes share delivered-report policy and route to the website repository", async t => {
   const api = await fixture(t);
   assert.equal((await api.post()).status, 200);
   const blocked = await api.post("issue");
@@ -63,9 +63,34 @@ test("both routes share delivered-report policy and keep destination routing", a
   assert.equal(blocked.headers.get("Retry-After"), "600");
   api.setTime(600000);
   assert.equal((await api.post("issue")).status, 200);
-  assert.equal(api.calls[0][0], "https://api.github.com/repos/example/data/issues");
+  assert.equal(api.calls[0][0], "https://api.github.com/repos/example/dev/issues");
   assert.equal(api.calls[1][0], "https://api.github.com/repos/example/dev/issues");
+  assert.equal(api.calls[0][1].title, "[Other] Test report");
+  assert.match(api.calls[0][1].body, /\*\*Category:\*\* Other/);
 });
+
+for (const route of ["data", "issue", "DATA/", "ISSUE/"]) {
+  test(`${route} delivers without a private-overlay setting`, async t => {
+    const api = await fixture(t, undefined, { REPO_DATA_REPORT: undefined });
+    assert.equal((await api.post(route)).status, 200);
+    assert.equal(api.calls[0][0], "https://api.github.com/repos/example/dev/issues");
+  });
+}
+
+for (const route of ["data", "issue"]) {
+  for (const company of [{ toString: null }, {}, [], 0, false]) {
+    test(`${route}: non-text honeypot ${JSON.stringify(company)} is rejected before delivery`, async t => {
+      const api = await fixture(t);
+      const result = await api.post(route, { ...fields, company });
+      assert.equal(result.status, 400);
+      assert.equal(result.body.error.code, "invalid_report");
+      assert.equal(result.body.error.message, "company must be text.");
+      assert.equal(api.calls.length, 0);
+      assert.equal(api.logs.length, 0);
+      assert.equal((await api.post(route)).status, 200);
+    });
+  }
+}
 
 test("HTTP 20th/21st and rolling boundary across mixed routes", async t => {
   const api = await fixture(t);
@@ -211,10 +236,11 @@ test("null provider errors release pending state into uncertainty, not a permane
   assert.equal((await api.post()).status, 409);
 });
 
-test("case and trailing slash aliases preserve their matched route destination", async t => {
+test("case and trailing slash aliases preserve data formatting and the shared destination", async t => {
   const api = await fixture(t);
   assert.equal((await api.post("DATA/")).status, 200);
-  assert.equal(api.calls[0][0], "https://api.github.com/repos/example/data/issues");
+  assert.equal(api.calls[0][0], "https://api.github.com/repos/example/dev/issues");
+  assert.equal(api.calls[0][1].title, "[Other] Test report");
   api.setTime(600000);
   assert.equal((await api.post("ISSUE/")).status, 200);
   assert.equal(api.calls[1][0], "https://api.github.com/repos/example/dev/issues");

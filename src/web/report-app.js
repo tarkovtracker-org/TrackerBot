@@ -122,7 +122,11 @@ export function createReportApp({ env = process.env, githubPost = axios.post, no
     if (origins.size && ![...origins].some(allowed => origin === allowed || origin.startsWith(`${allowed}/`))) {
       return sendError(res, 403, "forbidden_origin", "This report form is not allowed to submit from this address. Keep your draft and contact support.");
     }
-    if ((req.body?.company ?? "").toString().trim()) return res.json({ ok: true });
+    const company = req.body?.company;
+    if (company != null && typeof company !== "string") {
+      return sendError(res, 400, "invalid_report", "company must be text.");
+    }
+    if (company?.trim()) return res.json({ ok: true });
     const validated = validateFields(req.body, kind);
     if (validated.error) return sendError(res, 400, "invalid_report", validated.error);
     const issue = buildIssue(kind, validated.fields);
@@ -130,7 +134,9 @@ export function createReportApp({ env = process.env, githubPost = axios.post, no
     const admission = policy.reserve(clientKey(req.ip), fingerprint);
     if (!admission.ok) return sendAdmissionError(res, admission);
     try {
-      const repo = kind === "data" ? env.REPO_DATA_REPORT : env.REPO_DEV;
+      // Temporary shared destination: the overlay is private. Ignore any
+      // legacy REPO_DATA_REPORT setting, but retain data-specific formatting.
+      const repo = env.REPO_DEV;
       const response = await githubPost(`https://api.github.com/repos/${repo}/issues`, issue, { headers: githubHeaders, timeout: 10_000 });
       if (response?.status !== 201) throw new Error("Unexpected issue creation status");
       admission.settle("accepted");
