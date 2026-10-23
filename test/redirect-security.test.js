@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { once } from "node:events";
-import followRedirects from "follow-redirects";
+import { createRequire } from "node:module";
+
+// Exercise Axios's actual dependency, even when it is nested rather than hoisted.
+const axiosRequire = createRequire(createRequire(import.meta.url).resolve("axios"));
+const followRedirects = axiosRequire("follow-redirects");
 
 async function redirectedHeaders(t, headers, sensitiveHeaders = []) {
   let received;
