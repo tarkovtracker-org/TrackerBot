@@ -35,7 +35,8 @@
     "undici": "^6.28.0",
     "ws": "^8.21.0",
     "shell-quote": "1.12.0",
-    "follow-redirects": "1.16.1"
+    "follow-redirects": "1.16.1",
+    "ip-address": "10.7.4"
   },
   "devDependencies": {
     "concurrently": "^9.2.4"
