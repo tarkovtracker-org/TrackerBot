@@ -8,6 +8,7 @@ import { createReportPolicy } from "./report-policy.js";
 
 const webDirectory = fileURLToPath(new URL("../../web", import.meta.url));
 export const FIELD_LIMITS = { title: 200, discord: 64, category: 64, reference: 500, description: 8000 };
+const providerRateMessage = "GitHub is temporarily limiting reports. Your report was not created. Keep your draft and wait before retrying.";
 const parserErrors = new Map([
   ["entity.too.large", [413, "report_too_large", "This report exceeds the 32 KiB request limit. Shorten the details while keeping the key evidence."]],
   ["parameters.too.many", [413, "report_too_large", "The request contains too many fields. Keep your draft and reload the report form."]],
@@ -35,7 +36,7 @@ function sendError(res, status, code, message, details = {}) {
 }
 
 function sendAdmissionError(res, admission) {
-  const status = admission.code === "delivery_uncertain" ? 409 : admission.code === "report_capacity" ? 503 : 429;
+  const status = admission.code === "delivery_uncertain" ? 409 : ["report_capacity", "provider_rate_limit"].includes(admission.code) ? 503 : 429;
   return sendError(res, status, admission.code, admission.message, { retryAfterSeconds: admission.retryAfterSeconds, resetAt: admission.resetAt });
 }
 
@@ -86,7 +87,7 @@ function deliveryError(err, time) {
   const secondary = typeof message === "string" && /secondary rate limit/i.test(message);
   if (status === 429 || (status === 403 && (headers["retry-after"] || String(headers["x-ratelimit-remaining"]) === "0" || secondary))) {
     const seconds = providerWait(headers, time);
-    return { status: 503, code: "provider_rate_limit", message: "GitHub is temporarily limiting reports. Your report was not created. Keep your draft and wait before retrying.", retryAfterSeconds: seconds, resetAt: new Date(time + seconds * 1000).toISOString(), failed: true };
+    return { status: 503, code: "provider_rate_limit", message: providerRateMessage, retryAfterSeconds: seconds, resetAt: new Date(time + seconds * 1000).toISOString(), failed: true };
   }
   if ([400, 401, 403, 404, 405, 410, 422].includes(status)) {
     return { status: 502, code: "delivery_rejected", message: "The report service could not deliver this report. It was not created. Keep your draft and contact support.", failed: true };
@@ -105,11 +106,20 @@ export function createReportApp({ env = process.env, githubPost = axios.post, no
   const policy = createReportPolicy({ now });
   const origins = new Set((env.ALLOWED_ORIGINS || "").split(",").map(origin => origin.trim().replace(/\/+$/, "")).filter(Boolean));
   const githubHeaders = { Authorization: `token ${env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "tarkovtracker-webserver" };
+  // One shared token serves both routes and every client in this process.
+  let providerBlockedUntil = 0;
+  function withProviderWait(admission, time) {
+    if (time >= providerBlockedUntil) return admission;
+    const wait = { retryAfterSeconds: Math.ceil((providerBlockedUntil - time) / 1000), resetAt: new Date(providerBlockedUntil).toISOString() };
+    if (admission.ok === false && Date.parse(admission.resetAt) >= providerBlockedUntil) return admission;
+    if (admission.code === "delivery_uncertain") return { ...admission, ...wait };
+    return { ok: false, code: "provider_rate_limit", message: providerRateMessage, ...wait };
+  }
   // This separate budget counts attempts, including invalid/rejected requests.
   // It is shared across routes and runs before decoding the body.
   app.post(["/data", "/issue"], (req, res, next) => {
     const admission = policy.attempt(clientKey(req.ip));
-    if (!admission.ok) return sendAdmissionError(res, admission);
+    if (!admission.ok) return sendAdmissionError(res, withProviderWait(admission, now()));
     next();
   });
   app.use(express.urlencoded({ extended: true, limit: "32kb" }));
@@ -131,8 +141,14 @@ export function createReportApp({ env = process.env, githubPost = axios.post, no
     if (validated.error) return sendError(res, 400, "invalid_report", validated.error);
     const issue = buildIssue(kind, validated.fields);
     const fingerprint = createHash("sha256").update(JSON.stringify([kind, issue])).digest("hex");
-    const admission = policy.reserve(clientKey(req.ip), fingerprint);
-    if (!admission.ok) return sendAdmissionError(res, admission);
+    const reservation = policy.reserve(clientKey(req.ip), fingerprint);
+    const admission = withProviderWait(reservation, now());
+    if (!admission.ok) {
+      // No asynchronous work occurs before releasing this temporary reservation.
+      // Inspecting the local denial first preserves known uncertain-report warnings.
+      if (reservation.ok) reservation.settle("failed");
+      return sendAdmissionError(res, admission);
+    }
     try {
       // Temporary shared destination: the overlay is private. Ignore any
       // legacy REPO_DATA_REPORT setting, but retain data-specific formatting.
@@ -143,6 +159,9 @@ export function createReportApp({ env = process.env, githubPost = axios.post, no
       return res.json({ ok: true });
     } catch (err) {
       const failure = deliveryError(err, now());
+      if (failure.code === "provider_rate_limit") {
+        providerBlockedUntil = Math.max(providerBlockedUntil, Date.parse(failure.resetAt));
+      }
       admission.settle(failure.failed ? "failed" : "uncertain");
       logger.error("Report delivery failed", { route: kind, status: Number.isInteger(err?.response?.status) ? err.response.status : "no-response", code: failure.code });
       const details = failure.retryAfterSeconds != null ? { retryAfterSeconds: failure.retryAfterSeconds } : {};

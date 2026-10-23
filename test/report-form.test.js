@@ -133,6 +133,7 @@ for (const kind of ["data", "issue"]) {
     assert.match(ui.html, /maxlength="8000"/);
     assert.match(ui.html, /aria-live="polite"/);
     assert.match(ui.html, /per client IP/);
+    assert.match(ui.html, /Your report, including your Discord handle, reference links and details, is published as a public GitHub issue\./);
   });
 }
 

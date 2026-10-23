@@ -196,6 +196,7 @@ for (const status of [401, 403, 404, 422, 429]) {
     assert.notEqual(failure.body.error.code, "delivery_uncertain");
     if (status === 429 || status === 403) assert.equal(failure.headers.get("Retry-After"), "120");
     reject = false;
+    if (status === 429 || status === 403) api.setTime(120000);
     assert.equal((await api.post()).status, 200);
     assert.doesNotMatch(JSON.stringify([failure, api.logs]), /PRIVATE_PROVIDER/);
   });
@@ -271,6 +272,75 @@ for (const scenario of [
     assert.doesNotMatch(JSON.stringify([result, api.logs]), /PRIVATE_PROVIDER_DETAIL/);
   });
 }
+
+test("provider throttling blocks every client and both routes until the exact reset", async t => {
+  let fail = true;
+  const api = await fixture(t, async () => {
+    if (fail) throw { response: { status: 429, headers: { "retry-after": "120" } } };
+    return { status: 201 };
+  });
+  assert.equal((await api.post()).body.error.code, "provider_rate_limit");
+  fail = false;
+  for (const route of ["data", "issue", "DATA/", "ISSUE/"]) {
+    const result = await api.post(route, fields, { "X-Forwarded-For": `192.0.2.${route.length}` });
+    assert.equal(result.status, 503);
+    assert.equal(result.body.error.code, "provider_rate_limit");
+    assert.equal(result.headers.get("Retry-After"), "120");
+  }
+  assert.equal(api.calls.length, 1);
+  api.setTime(119999);
+  assert.equal((await api.post()).headers.get("Retry-After"), "1");
+  assert.equal(api.calls.length, 1);
+  api.setTime(120000);
+  assert.equal((await api.post()).status, 200);
+  assert.equal(api.calls.length, 2);
+});
+
+test("zero provider wait permits an immediate retry without consuming report allowance", async t => {
+  let fail = true;
+  const api = await fixture(t, async () => {
+    if (fail) throw { response: { status: 429, headers: { "retry-after": "0" } } };
+    return { status: 201 };
+  });
+  assert.equal((await api.post()).body.retryAfterSeconds, 0);
+  fail = false;
+  assert.equal((await api.post()).status, 200);
+});
+
+test("provider waits combine with local admission waits and retain uncertainty warnings", async t => {
+  const api = await fixture(t, async (_url, issue) => {
+    if (issue.title.includes("uncertain")) throw { code: "ECONNABORTED" };
+    throw { response: { status: 429, headers: { "retry-after": "50000" } } };
+  });
+  const key = { "X-Forwarded-For": "192.0.2.1" };
+  await api.post("data", { ...fields, title: "uncertain" }, key);
+  await api.post("issue", fields, { "X-Forwarded-For": "192.0.2.2" });
+  const cooldown = await api.post("data", fields, key);
+  assert.equal(cooldown.body.error.code, "provider_rate_limit");
+  assert.equal(cooldown.body.retryAfterSeconds, 50000);
+  api.setTime(600000);
+  const repeated = await api.post("data", { ...fields, title: "uncertain" }, key);
+  assert.equal(repeated.body.error.code, "delivery_uncertain");
+  assert.equal(repeated.body.retryAfterSeconds, 49400);
+  assert.match(repeated.body.error.message, /could not be confirmed/);
+  assert.equal(api.calls.length, 2);
+});
+
+test("a staged body admitted before provider throttling does not deliver during its hold", { timeout: 10000 }, async t => {
+  const api = await fixture(t, async () => {
+    throw { response: { status: 429, headers: { "retry-after": "120" } } };
+  });
+  const admitted = once(api.server, "request");
+  const upload = stagedUpload(api);
+  await admitted;
+  await api.post("issue", fields, { "X-Forwarded-For": "192.0.2.3" });
+  upload.complete();
+  const result = await upload.result;
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error.code, "provider_rate_limit");
+  assert.equal(result.headers["retry-after"], "120");
+  assert.equal(api.calls.length, 1);
+});
 
 test("fifth cooldown rejection advertises the newly exhausted attempt wait", async t => {
   const api = await fixture(t);

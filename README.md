@@ -28,7 +28,8 @@ Both report forms currently create issues in `REPO_DEV`, configured as
 `tarkovtracker-org/TarkovTracker`. The data overlay repository is private, so
 `REPO_DATA_REPORT` is no longer required and any existing value is ignored.
 Data reports retain their category-prefixed title, category, reference and details.
-Both forms link to the public TarkovTracker issue list for delivery checks.
+Both forms link to the public TarkovTracker issue list for delivery checks and
+explicitly warn that Discord handles, reference links and report details are public.
 
 `POST /data` and `POST /issue` share one reporting policy for each client IP
 (with the existing IPv6 `/56` grouping). The allowance is **20 delivered reports
@@ -70,9 +71,12 @@ delivery uses `409`. Wait errors include numeric `Retry-After` seconds and an IS
 `resetAt`. Validation/parser/origin errors use `400`/`413`/`415`/`403`. Proven provider
 rejections/connectivity failures use `502`/`503`; unconfirmed delivery uses `504`.
 Provider throttling honors full `Retry-After` and exhausted-primary
-`x-ratelimit-reset` waits, taking the longer when both apply. Secondary throttles
-without timing headers use GitHub's minimum one-minute guidance. Neither server
-nor browser truncates a valid provider wait. Known client parser failures,
+`x-ratelimit-reset` waits, taking the longer when both apply. A shared process-local
+provider hold prevents every client on both routes, including staged uploads, from
+calling GitHub again before that reset. Local denials include any longer provider
+wait, while known uncertain-report denials keep their check-before-repeating warning.
+Secondary throttles without timing headers use GitHub's minimum one-minute guidance.
+Neither server nor browser truncates a valid provider wait. Known client parser failures,
 including parameter overflow, excessive nesting and unsupported formats, return
 retryable typed `4xx` errors; they are not uncertain GitHub delivery.
 See [GitHub rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit)
@@ -81,12 +85,18 @@ Provider bodies, tokens, IPs
 and report descriptions are never included in error output or delivery logs.
 
 **Rollout limitation: these controls are process-local memory, not durable or
-shared across workers/hosts.** A restart clears allowances, cooldowns and
-uncertain-report holds. There is no existing persistent limiter store or hosting
-manifest in this repository. State is capped at 10,000 clients and stale entries
-are removed; at capacity, new clients receive a safe busy response instead of
-evicting active limits. Strict enforcement across restarts or multiple processes
-needs an operator-approved persistent/shared store after hosting is established.
+shared across workers/hosts.** A restart clears allowances, cooldowns,
+uncertain-report holds and the shared provider throttle. There is no existing
+persistent limiter store or hosting manifest in this repository. State is capped
+at 10,000 clients and stale entries are removed; at capacity, expiry cleanup runs
+at most once per second. New clients
+receive a safe busy response when the remaining entries still hold active limits;
+active attempt budgets are not evicted to make room. Otherwise rotating keys could
+bypass the five-attempt allowance. Sustained traffic from 10,000 distinct active
+client keys can still exhaust this bounded table; operator-side abuse protection
+and the trusted-proxy boundary remain necessary. Strict enforcement across restarts
+or multiple processes needs an operator-approved persistent/shared store after
+hosting is established.
 This change adds no infrastructure or production settings and is not evidence
 that the deployed topology is ready for strict enforcement.
 
@@ -151,8 +161,9 @@ Copy `.env.example` to `.env` and fill in every value:
   overwrites forwarding headers, and that distinct visitors retain distinct limiter keys.
   Leave `trust proxy = 1` unchanged until the real proxy path is established.
 - Confirm a single serving web process, including during deployments, and explicitly
-  accept that restarts clear limits and uncertain-delivery holds. If strict limits
-  across replicas or restarts are required, approve a shared/persistent store before rollout.
+  accept that restarts clear limits, uncertain-delivery holds and provider throttles.
+  If strict limits across replicas or restarts are required, approve a shared/persistent
+  store before rollout.
 - A successful `/health` response only proves the HTTP process is running, not
   GitHub delivery or correct proxy isolation. Coolify configuration and production
   credentials cannot be verified from repository tests.

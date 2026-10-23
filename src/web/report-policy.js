@@ -21,8 +21,8 @@ export function createReportPolicy({ now = Date.now, maxClients = 10_000 } = {})
     state.events = state.events.filter(event => event.time > time - REPORT_WINDOW_MS);
     state.attempts = state.attempts.filter(attempt => attempt > time - ATTEMPT_WINDOW_MS);
   }
-  function sweep(time) {
-    if (time - lastSweep < 60_000) return;
+  function sweep(time, interval) {
+    if (time - lastSweep < interval) return;
     lastSweep = time;
     for (const [key, state] of clients) {
       prune(state, time);
@@ -30,7 +30,9 @@ export function createReportPolicy({ now = Date.now, maxClients = 10_000 } = {})
     }
   }
   function stateFor(key, time) {
-    sweep(time);
+    // Reclaim expired entries promptly at capacity, but never evict an active
+    // attempt budget, delivered allowance, pending reservation or uncertain hold.
+    sweep(time, clients.size >= maxClients ? 1000 : 60_000);
     let state = clients.get(key);
     if (!state) {
       if (clients.size >= maxClients) {

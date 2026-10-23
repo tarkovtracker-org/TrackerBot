@@ -114,6 +114,25 @@ test("client state is bounded, expires, and is explicitly process-local", () => 
   assert.equal(restarted.reserve("first", "report").ok, true);
 });
 
+test("capacity sweeps expired attempt-only state without dropping active report holds", () => {
+  const { policy, setTime } = fixture({ maxClients: 2 });
+  policy.reserve("protected", "report").settle("accepted");
+  setTime(59000);
+  assert.equal(policy.attempt("temporary").ok, true);
+  setTime(60000);
+  policy.attempt("protected");
+  setTime(119000);
+  assert.equal(policy.attempt("new-client").ok, true);
+  assert.equal(policy.reserve("protected", "next").code, "report_cooldown");
+});
+
+test("capacity never evicts an active attempt budget to admit a new key", () => {
+  const { policy } = fixture({ maxClients: 1 });
+  for (let index = 0; index < 5; index++) assert.equal(policy.attempt("first").ok, true);
+  assert.equal(policy.attempt("other").code, "report_capacity");
+  assert.equal(policy.attempt("first").code, "attempt_limit");
+});
+
 test("cooldown starts at delivery completion rather than reservation", () => {
   const { policy, setTime } = fixture();
   const admission = policy.reserve("client", "first");
