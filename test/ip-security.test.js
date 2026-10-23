@@ -2,15 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { Address6 } from "ip-address";
+import { createRequire } from "node:module";
 import { ipKeyGenerator } from "express-rate-limit";
+
+// Exercise the limiter's actual dependency, including a nested installation.
+const limiterRequire = createRequire(createRequire(import.meta.url).resolve("express-rate-limit"));
+const { Address6 } = limiterRequire("ip-address");
 
 // Run potentially blocking validation outside the test runner. The vulnerable
 // version takes many seconds on this input; the patch rejects it in milliseconds.
 test("oversized IPv6 zones with line terminators are rejected without stalling", () => {
   const result = spawnSync(process.execPath, ["-e", `
     const assert = require('node:assert/strict');
-    const { Address6 } = require('ip-address');
+    const { Address6 } = require(${JSON.stringify(limiterRequire.resolve("ip-address"))});
     for (const terminator of ['\\n', '\\r', '\\u2028', '\\u2029']) {
       assert.equal(Address6.isValid('%'.repeat(200000) + terminator), false);
     }
