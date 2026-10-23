@@ -148,8 +148,9 @@ Copy `.env.example` to `.env` and fill in every value:
 ### Production rollout checklist
 
 - Use `npm ci`, `npm run build`, and `npm start` in the hosting configuration.
-  `npm start` launches one bot and one web process per invocation; verify the
-  actual replica count and deployment overlap rather than inferring it from the command.
+  `npm start` launches one bot and one web process per invocation; its launcher is
+  a runtime dependency, so `npm ci --omit=dev` is also supported. Verify the actual
+  replica count and deployment overlap rather than inferring it from the command.
 - Set `REPO_DEV=tarkovtracker-org/TarkovTracker`. Verify the deployed token's
   issue-write access without sharing credentials. Both report routes use that destination.
 - Correct the operator's origin-list typos (`https//` is not `https://`). A valid

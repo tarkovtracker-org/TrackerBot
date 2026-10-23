@@ -50,3 +50,9 @@ test("the build ignores installed dependencies and Git metadata", async t => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Syntax checked 3 JavaScript files/);
 });
+
+test("the service launcher remains available in production-only installs", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.match(manifest.scripts.start, /^concurrently\s/);
+  assert.ok(manifest.dependencies?.concurrently, "npm start must not rely on a dev-only launcher");
+});
