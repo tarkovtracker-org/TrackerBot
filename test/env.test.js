@@ -53,6 +53,21 @@ test("ensureEnvVars passes when all vars are set", async () => {
   assert.doesNotThrow(() => ensureEnvVars());
 });
 
+test("web intake requires only the shared website destination and token", async () => {
+  const { ensureWebEnvVars, requiredWebEnvVars } = await importEnv();
+  assert.deepEqual(requiredWebEnvVars, ["GITHUB_TOKEN", "REPO_DEV"]);
+  assert.doesNotThrow(() => ensureWebEnvVars({ GITHUB_TOKEN: "test-only", REPO_DEV: "tarkovtracker-org/TarkovTracker" }));
+});
+
+for (const name of ["GITHUB_TOKEN", "REPO_DEV"]) {
+  for (const value of [undefined, "", "   "]) {
+    test(`web intake rejects missing or blank ${name}: ${JSON.stringify(value)}`, async () => {
+      const { ensureWebEnvVars } = await importEnv();
+      assert.throws(() => ensureWebEnvVars({ GITHUB_TOKEN: "test-only", REPO_DEV: "example/dev", [name]: value }), new RegExp(`Missing required environment variables for webserver: ${name}`));
+    });
+  }
+}
+
 test("ensureEnvVars throws when a required var is missing", async () => {
   delete process.env.DISCORD_TOKEN;
   const { ensureEnvVars } = await importEnv();

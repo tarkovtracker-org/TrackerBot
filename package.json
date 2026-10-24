@@ -6,6 +6,8 @@
   "main": "bot.js",
   "scripts": {
     "test": "node --test",
+    "build": "node scripts/check-syntax.js",
+    "audit:prod": "npm audit --omit=dev --audit-level=low",
     "start:bot": "node bot.js",
     "start:web": "node webserver.js",
     "start": "concurrently -n bot,web \"npm:start:bot\" \"npm:start:web\""
@@ -24,17 +26,18 @@
   },
   "dependencies": {
     "axios": "^1.20.0",
+    "concurrently": "9.2.4",
     "discord.js": "^14.26.4",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-rate-limit": "^8.5.2"
   },
   "overrides": {
-    "undici": "^6.28.0",
+    "undici": "6.29.1",
     "ws": "^8.21.0",
-    "shell-quote": "1.12.0"
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.4"
+    "shell-quote": "1.12.0",
+    "follow-redirects": "1.16.1",
+    "ip-address": "10.7.4",
+    "body-parser": "2.4.0"
   }
 }
