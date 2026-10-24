@@ -32,7 +32,8 @@
   "overrides": {
     "undici": "^6.28.0",
     "ws": "^8.21.0",
-    "shell-quote": "1.12.0"
+    "shell-quote": "1.12.0",
+    "body-parser": "2.4.0"
   },
   "devDependencies": {
     "concurrently": "^9.2.4"
