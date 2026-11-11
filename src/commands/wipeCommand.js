@@ -48,9 +48,15 @@ export async function executeWipe(interaction) {
     return;
   }
 
+  const requested = interaction.options?.getInteger("count") ?? 100;
+  if (!Number.isInteger(requested) || requested < 1 || requested > 1000) {
+    await interaction.reply({ content: "Choose a message count from 1 to 1000.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+
   const confirmButton = new ButtonBuilder()
     .setCustomId("confirm_wipe")
-    .setLabel("Confirm Wipe")
+    .setLabel(`Delete up to ${requested}`)
     .setStyle(ButtonStyle.Danger);
 
   const cancelButton = new ButtonBuilder()
@@ -63,9 +69,9 @@ export async function executeWipe(interaction) {
   await interaction.reply({
     embeds: [
       createCardEmbed({
-        title: "Confirm Channel Wipe",
+        title: "Confirm Message Purge",
         description:
-          "Are you sure you want to delete all recent messages in this channel?\n\n" +
+          `Delete up to **${requested}** recent message(s) in this channel?\n\n` +
           "This will bulk-delete messages up to 14 days old (Discord API limit). " +
           "Older messages cannot be bulk-deleted and will be skipped.\n\n" +
           "This action cannot be undone.",
@@ -80,6 +86,7 @@ export async function executeWipe(interaction) {
     i.user.id === interaction.user.id &&
     (i.customId === "confirm_wipe" || i.customId === "cancel_wipe");
 
+  let totalDeleted = 0;
   try {
     const reply = await interaction.fetchReply();
     const buttonInteraction = await reply.awaitMessageComponent({
@@ -91,8 +98,8 @@ export async function executeWipe(interaction) {
       await buttonInteraction.update({
         embeds: [
           createCardEmbed({
-            title: "Wipe Cancelled",
-            description: "Channel wipe was cancelled.",
+            title: "Purge Cancelled",
+            description: "Message purge was cancelled.",
             color: colors.info
           })
         ],
@@ -117,11 +124,10 @@ export async function executeWipe(interaction) {
       return;
     }
 
-    let totalDeleted = 0;
     let batches = 0;
 
-    while (batches < MAX_DELETE_BATCHES) {
-      const messages = await channel.messages.fetch({ limit: 100 });
+    while (totalDeleted < requested && batches < MAX_DELETE_BATCHES) {
+      const messages = await channel.messages.fetch({ limit: Math.min(100, requested - totalDeleted) });
       if (messages.size === 0) break;
 
       // bulkDelete with filterOld=true silently skips messages older than 14
@@ -140,8 +146,8 @@ export async function executeWipe(interaction) {
     await interaction.editReply({
       embeds: [
         createCardEmbed({
-          title: "Channel Wiped",
-          description: `Deleted ${totalDeleted} message(s).\n\nMessages older than 14 days cannot be bulk-deleted and were skipped.${hitCap ? "\n\nBatch limit reached — run /wipe again to continue." : ""}`,
+          title: "Message Purge Complete",
+          description: `Deleted ${totalDeleted} of up to ${requested} message(s).\n\nMessages older than 14 days cannot be bulk-deleted and were skipped.${hitCap ? "\n\nBatch limit reached — run /channel purge again to continue." : ""}`,
           color: colors.success
         })
       ],
@@ -149,12 +155,12 @@ export async function executeWipe(interaction) {
     });
   } catch (err) {
     // awaitMessageComponent rejects with InteractionCollectorError on timeout
-    if (err.code === "InteractionCollectorError") {
+    if (err?.code === "InteractionCollectorError") {
       await interaction.editReply({
         embeds: [
           createCardEmbed({
-            title: "Wipe Timed Out",
-            description: "Confirmation timed out. Please run /wipe again.",
+            title: "Purge Timed Out",
+            description: "Confirmation timed out. Please run /channel purge again.",
             color: colors.error
           })
         ],
@@ -163,12 +169,12 @@ export async function executeWipe(interaction) {
       return;
     }
 
-    console.error("Error during channel wipe:", err);
+    console.error("Error during channel wipe:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
     await interaction.editReply({
       embeds: [
         createCardEmbed({
-          title: "Wipe Failed",
-          description: "Failed to delete messages. Check bot permissions.",
+          title: "Message Purge Failed",
+          description: `Purge stopped after deleting ${totalDeleted} message(s). Check the channel and bot permissions before trying again.`,
           color: colors.error
         })
       ],

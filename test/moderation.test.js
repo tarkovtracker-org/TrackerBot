@@ -8,10 +8,11 @@ import { executeWipe } from "../src/commands/wipeCommand.js";
 beforeEach(t => {
   adminRoles.add("staff");
   t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
 });
 afterEach(() => adminRoles.delete("staff"));
 
-function fixture(command, { cancel = false, timeout = false, revoked = false, memberError = false, cloneError = false, deleteError = false, bulkError = false } = {}) {
+function fixture(command, { cancel = false, timeout = false, revoked = false, memberError = false, cloneError = false, deleteError = false, bulkError = false, buttonError } = {}) {
   const events = [];
   const edits = [];
   const notices = [];
@@ -38,7 +39,10 @@ function fixture(command, { cancel = false, timeout = false, revoked = false, me
   const button = {
     customId: `${cancel ? "cancel" : "confirm"}_${command}`,
     user: { id: "actor" },
-    deferUpdate: async () => events.push("ack-button"),
+    deferUpdate: async () => {
+      events.push("ack-button");
+      if (buttonError !== undefined) throw buttonError;
+    },
     update: async data => { events.push("cancel"); edits.push(data); }
   };
   const interaction = {
@@ -52,7 +56,14 @@ function fixture(command, { cancel = false, timeout = false, revoked = false, me
         if (memberError) throw new Error("Discord unavailable");
         return { roles: { cache: revoked ? new Collection() : roles } };
       } },
-      channels: { create: async options => {
+      channels: {
+        fetch: async (id, options) => {
+          events.push("fetch-channel");
+          assert.equal(id, channel.id);
+          assert.deepEqual(options, { force: true });
+          return channel;
+        },
+        create: async options => {
         events.push("clone");
         assert.equal(options.parent, "parent");
         assert.equal(options.permissionOverwrites, channel.permissionOverwrites.cache);
@@ -98,10 +109,26 @@ for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe
     else assert.match(f.edits.at(-1).embeds[0].toJSON().description, /Deleted 1\b/);
   });
 
+  for (const failure of [Object.assign(new Error("Synthetic Discord failure"), {
+    code: 10062,
+    url: "https://discord.com/api/v10/interactions/test-id/synthetic-interaction-token/callback",
+    requestBody: { json: { content: "private synthetic preview" } }
+  }), null]) {
+    test(`${name}: failed callback keeps credential-bearing error details out of diagnostics (${failure === null ? "null" : "API error"})`, async () => {
+      const f = fixture(name, { buttonError: failure });
+      await assert.doesNotReject(execute(f.interaction));
+      assert.equal(f.events.includes(operation), false);
+      const calls = console.error.mock.calls.map(call => call.arguments);
+      assert.deepEqual(calls, [[`Error during channel ${name}:`, { name: failure?.name ?? "unknown", code: failure?.code ?? "unknown" }]]);
+      assert.doesNotMatch(JSON.stringify({ errors: calls, warnings: console.warn.mock.calls.map(call => call.arguments) }), /synthetic-interaction-token|private synthetic preview|Synthetic Discord failure/);
+    });
+  }
+
   test(`${name}: cancel does not mutate the channel`, async () => {
     const f = fixture(name, { cancel: true });
     await execute(f.interaction);
     assert.ok(f.events.includes("cancel"));
+    if (name === "wipe") assert.match(f.edits.at(-1).embeds[0].toJSON().description, /Message purge was cancelled/);
     assert.equal(f.events.includes(operation), false);
     assert.equal(f.events.includes("fetch-member"), false);
   });
@@ -141,7 +168,7 @@ test("wipe: bulk deletion failure reports failure and removes confirmation butto
   const f = fixture("wipe", { bulkError: true });
   await executeWipe(f.interaction);
   assert.ok(f.events.includes("bulkDelete"));
-  assert.equal(f.edits.at(-1).embeds[0].toJSON().title, "Wipe Failed");
+  assert.equal(f.edits.at(-1).embeds[0].toJSON().title, "Message Purge Failed");
   assert.deepEqual(f.edits.at(-1).components, []);
 });
 
@@ -152,6 +179,39 @@ test("nuke: clone failure never deletes the original", async () => {
   assert.equal(f.events.includes("delete"), false);
   assert.match(f.edits.at(-1).embeds[0].toJSON().description, /original channel is untouched/);
 });
+
+test("nuke refreshes source flags after confirmation before creating or deleting channels", async () => {
+  const f = fixture("nuke");
+  f.interaction.guild.channels.fetch = async () => {
+    f.interaction.channel.flags = { bitfield: 1 << 21 };
+    return f.interaction.channel;
+  };
+  await executeNuke(f.interaction);
+  assert.match(f.edits.at(-1).content, /cannot be cloned safely/);
+  assert.equal(f.events.includes("clone"), false);
+  assert.equal(f.events.includes("delete"), false);
+});
+
+test("nuke refuses channel flags that the installed SDK cannot clone safely", async () => {
+  const f = fixture("nuke");
+  f.interaction.channel.flags = { bitfield: 1 << 21 };
+  await executeNuke(f.interaction);
+  assert.equal(f.events.includes("clone"), false);
+  assert.equal(f.events.includes("delete"), false);
+  assert.deepEqual(f.events, ["reply"]);
+});
+
+for (const slowmode of [0, 42]) {
+  test(`nuke preserves the default thread slowmode (${slowmode})`, async () => {
+    const f = fixture("nuke");
+    f.interaction.channel.defaultThreadRateLimitPerUser = slowmode;
+    const create = f.interaction.guild.channels.create;
+    let options;
+    f.interaction.guild.channels.create = async input => { options = input; return create(input); };
+    await executeNuke(f.interaction);
+    assert.equal(options.defaultThreadRateLimitPerUser, slowmode);
+  });
+}
 
 test("nuke: deletion failure reports partial completion in the clone", async () => {
   const f = fixture("nuke", { deleteError: true });

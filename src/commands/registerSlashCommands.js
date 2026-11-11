@@ -1,40 +1,47 @@
-import { SlashCommandBuilder, Routes, REST } from "discord.js";
+import {
+  SlashCommandBuilder, Routes, REST, InteractionContextType, ApplicationIntegrationType
+} from "discord.js";
+
+function command(name, description, admin = false) {
+  const builder = new SlashCommandBuilder()
+    .setName(name)
+    .setDescription(description)
+    .setContexts(InteractionContextType.Guild)
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall);
+  // Server owners explicitly grant configured staff roles access in Integrations.
+  // Runtime checks remain authoritative even if the UI permission is overridden.
+  if (admin) builder.setDefaultMemberPermissions(0n);
+  return builder;
+}
+
+function shareOptions(builder) {
+  return builder
+    .addBooleanOption(opt => opt.setName("private").setDescription("Only show the resource to you"))
+    .addStringOption(opt => opt.setName("reply_to").setDescription("Reply to a message ID or link in this channel"));
+}
 
 const slashCommands = [
-  new SlashCommandBuilder()
-    .setName("message")
-    .setDescription("Send a message as the bot (Discord Admin only)")
-    .addStringOption(opt =>
-      opt.setName("content")
-        .setDescription("Message content (use \\n for new lines)")
-        .setRequired(true)
-    ),
-  new SlashCommandBuilder()
-    .setName("faq1")
-    .setDescription("Post the FAQ notice about site stability"),
-  new SlashCommandBuilder()
-    .setName("utd")
-    .setDescription("Post the update-in-progress notice"),
-  new SlashCommandBuilder()
-    .setName("archive")
-    .setDescription("Archive this channel and move it to Archive"),
-  new SlashCommandBuilder()
-    .setName("put-member-role")
-    .setDescription("Add AUTO_ROLE_ID_4 to all members who don't have it (Admin only)"),
-  new SlashCommandBuilder()
-    .setName("wipe")
-    .setDescription("Bulk-delete recent messages in this channel (Admin only, 14-day limit)"),
-  new SlashCommandBuilder()
-    .setName("nuke")
-    .setDescription("Clone this channel with all permissions and delete the old one (Admin only)")
+  command("tt", "Share TarkovTracker links and discover useful commands")
+    .addSubcommand(sub => shareOptions(sub.setName("url").setDescription("Share the TarkovTracker website")))
+    .addSubcommand(sub => shareOptions(sub.setName("resources").setDescription("Share maintained guides and community tools")))
+    .addSubcommand(sub => sub.setName("help").setDescription("Show a private command guide")),
+  command("message", "Preview and send a bot announcement or reply", true)
+    .addStringOption(opt => opt.setName("content").setDescription("Message text (use \\n for new lines)").setRequired(true).setMinLength(1).setMaxLength(2000))
+    .addStringOption(opt => opt.setName("title").setDescription("Optional title to send a styled embed instead of plain text").setMaxLength(256))
+    .addStringOption(opt => opt.setName("reply_to").setDescription("Reply to a message ID or link in this channel"))
+    .addBooleanOption(opt => opt.setName("preview").setDescription("Preview with Send/Cancel buttons first (default: true)")),
+  command("channel", "Manage channel history and private audit archives", true)
+    .addSubcommand(sub => sub.setName("purge").setDescription("Delete a chosen number of recent messages after confirmation")
+      .addIntegerOption(opt => opt.setName("count").setDescription("Maximum messages to delete; messages over 14 days old are skipped")
+        .setRequired(true).setMinValue(1).setMaxValue(1000)))
+    .addSubcommand(sub => sub.setName("archive").setDescription("Hide this text channel for staff review without deleting its history")),
+  command("nuke", "Confirm a channel reset: clone settings, then permanently delete its history", true)
 ];
 
-const slashCommandData = slashCommands.map(command => command.toJSON());
+const slashCommandData = slashCommands.map(builder => builder.toJSON());
 
 export async function registerSlashCommands(client) {
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-
-  await rest.put(Routes.applicationCommands(client.user.id), {
-    body: slashCommandData
-  });
+  // Replaces obsolete commands on the next bot startup; never run by local tests.
+  await rest.put(Routes.applicationCommands(client.user.id), { body: slashCommandData });
 }
