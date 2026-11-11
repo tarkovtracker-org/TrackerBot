@@ -27,7 +27,7 @@ export function registerInteractionHandler(client) {
       }
     } catch (err) {
       // SDK errors may include callback tokens in URLs and private request bodies.
-      console.error("Unhandled interaction error:", { code: err?.code ?? "unknown" });
+      console.error("Unhandled interaction error:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
       try {
         if (interaction.deferred) {
           await interaction.editReply({

@@ -26,7 +26,7 @@ for (const failure of [Object.assign(new Error("Synthetic Discord failure"), {
     await assert.doesNotReject(listener(interaction));
     assert.equal(attempts, 2, "the failed safe recovery is contained too");
     assert.deepEqual(console.error.mock.calls.map(call => call.arguments), [
-      ["Unhandled interaction error:", { code: failure?.code ?? "unknown" }]
+      ["Unhandled interaction error:", { name: failure?.name ?? "unknown", code: failure?.code ?? "unknown" }]
     ]);
   });
 }
