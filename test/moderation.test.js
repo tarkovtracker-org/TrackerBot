@@ -52,7 +52,14 @@ function fixture(command, { cancel = false, timeout = false, revoked = false, me
         if (memberError) throw new Error("Discord unavailable");
         return { roles: { cache: revoked ? new Collection() : roles } };
       } },
-      channels: { create: async options => {
+      channels: {
+        fetch: async (id, options) => {
+          events.push("fetch-channel");
+          assert.equal(id, channel.id);
+          assert.deepEqual(options, { force: true });
+          return channel;
+        },
+        create: async options => {
         events.push("clone");
         assert.equal(options.parent, "parent");
         assert.equal(options.permissionOverwrites, channel.permissionOverwrites.cache);
@@ -141,7 +148,7 @@ test("wipe: bulk deletion failure reports failure and removes confirmation butto
   const f = fixture("wipe", { bulkError: true });
   await executeWipe(f.interaction);
   assert.ok(f.events.includes("bulkDelete"));
-  assert.equal(f.edits.at(-1).embeds[0].toJSON().title, "Wipe Failed");
+  assert.equal(f.edits.at(-1).embeds[0].toJSON().title, "Message Purge Failed");
   assert.deepEqual(f.edits.at(-1).components, []);
 });
 
@@ -151,6 +158,26 @@ test("nuke: clone failure never deletes the original", async () => {
   assert.ok(f.events.includes("clone"));
   assert.equal(f.events.includes("delete"), false);
   assert.match(f.edits.at(-1).embeds[0].toJSON().description, /original channel is untouched/);
+});
+
+test("nuke refreshes source flags after confirmation before creating or deleting channels", async () => {
+  const f = fixture("nuke");
+  f.interaction.guild.channels.fetch = async () => {
+    f.interaction.channel.flags = { bitfield: 1 << 21 };
+    return f.interaction.channel;
+  };
+  await executeNuke(f.interaction);
+  assert.equal(f.events.includes("clone"), false);
+  assert.equal(f.events.includes("delete"), false);
+});
+
+test("nuke refuses channel flags that the installed SDK cannot clone safely", async () => {
+  const f = fixture("nuke");
+  f.interaction.channel.flags = { bitfield: 1 << 21 };
+  await executeNuke(f.interaction);
+  assert.equal(f.events.includes("clone"), false);
+  assert.equal(f.events.includes("delete"), false);
+  assert.deepEqual(f.events, ["reply"]);
 });
 
 for (const slowmode of [0, 42]) {

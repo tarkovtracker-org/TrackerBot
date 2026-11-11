@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ChannelType, Collection, MessageFlags, PermissionsBitField, PermissionFlagsBits } from "discord.js";
-import { adminRoles, allowedCommandRoles } from "../src/config/constants.js";
+import { adminRoles, allowedCommandRoles, hasAdminRole } from "../src/config/constants.js";
 import { getResourceLinks } from "../src/config/resources.js";
 import { messageReference } from "../src/utils/messageReply.js";
 import { handleChatInputCommand } from "../src/interactions/slashHandlers.js";
@@ -30,16 +30,24 @@ const channelId = "222222222222222222";
 const messageId = "333333333333333333";
 const categoryId = "444444444444444444";
 
-function fixture(name, options = {}, { admin = true, canPost = true, cancel = false, timeout = false, revokedOn = Infinity, sendError = false, editError = false } = {}) {
-  const replies = [], edits = [], sent = [], channelEdits = [], messageFetches = [];
+function fixture(name, options = {}, { admin = true, canPost = true, cancel = false, timeout = false, revokedOn = Infinity, sendError = false, editError = false, targetError = false, botManageRoles = true } = {}) {
+  const replies = [], edits = [], sent = [], channelEdits = [], messageFetches = [], violations = [];
+  function verify(assertion) {
+    try { assertion(); } catch (err) { violations.push(err.message); }
+  }
   let memberFetches = 0;
   let acknowledged = false;
   const roles = new Collection(admin ? [["staff", { id: "staff" }]] : []);
   const category = { id: categoryId, type: ChannelType.GuildCategory, name: "Archive" };
   const channel = {
     id: channelId, type: ChannelType.GuildText,
-    messages: { fetch: async reference => { messageFetches.push(reference); return { id: reference }; } },
-    send: async data => { assert.ok(acknowledged); if (sendError) throw new Error("Discord unavailable"); sent.push(data); return { id: "sent" }; },
+    messages: { fetch: async reference => { messageFetches.push(reference); if (targetError) throw new Error("Unknown message"); return { id: reference }; } },
+    permissionsFor: () => new PermissionsBitField([
+      PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageChannels,
+      PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory,
+      ...(botManageRoles ? [PermissionFlagsBits.ManageRoles] : [])
+    ]),
+    send: async data => { verify(() => assert.ok(acknowledged)); if (sendError) throw new Error("Discord unavailable"); sent.push(data); return { id: "sent" }; },
     edit: async data => { if (editError) throw new Error("Missing permissions"); channelEdits.push(data); }
   };
   const interaction = {
@@ -56,12 +64,12 @@ function fixture(name, options = {}, { admin = true, canPost = true, cancel = fa
     },
     guild: {
       id: guildId,
-      channels: { fetch: async id => { assert.ok(acknowledged); return id ? channel : new Collection([[category.id, category]]); } },
+      channels: { fetch: async id => { verify(() => assert.ok(acknowledged)); return id ? channel : new Collection([[category.id, category]]); } },
       roles: { fetch: async () => new Collection([["staff", { id: "staff" }]]) },
       members: {
         fetch: async input => {
-          assert.ok(acknowledged, "acknowledge before network work");
-          assert.deepEqual(input, { user: "actor", force: true });
+          verify(() => assert.ok(acknowledged, "acknowledge before network work"));
+          verify(() => assert.deepEqual(input, { user: "actor", force: true }));
           memberFetches++;
           return { roles: { cache: memberFetches >= revokedOn ? new Collection() : roles } };
         },
@@ -69,26 +77,30 @@ function fixture(name, options = {}, { admin = true, canPost = true, cancel = fa
       }
     },
     reply: async data => { acknowledged = true; replies.push(data); },
-    deferReply: async data => { assert.equal(data.flags, MessageFlags.Ephemeral); acknowledged = true; },
+    deferReply: async data => { verify(() => assert.equal(data.flags, MessageFlags.Ephemeral)); acknowledged = true; },
     editReply: async data => {
-      assert.ok(acknowledged, "a real response must exist before editing or collecting");
+      verify(() => assert.ok(acknowledged, "a real response must exist before editing or collecting"));
       edits.push(data);
       return { awaitMessageComponent: async config => {
         const buttons = data.components[0].toJSON().components;
         const customId = buttons[cancel ? 1 : 0].custom_id;
         const button = { customId, user: interaction.user, deferUpdate: async () => {} };
-        assert.equal(config.filter({ ...button, user: { id: "stranger" } }), false);
-        assert.equal(config.filter({ ...button, customId: "unrelated" }), false);
-        assert.equal(config.filter(button), true);
+        verify(() => assert.equal(config.filter({ ...button, user: { id: "stranger" } }), false));
+        verify(() => assert.equal(config.filter({ ...button, customId: "unrelated" }), false));
+        verify(() => assert.equal(config.filter(button), true));
         if (timeout) throw Object.assign(new Error("timeout"), { code: "InteractionCollectorError" });
         return button;
       } };
     }
   };
-  return { interaction, replies, edits, sent, channelEdits, messageFetches };
+  return { interaction, replies, edits, sent, channelEdits, messageFetches, violations };
 }
 
-async function run(f) { assert.equal(await handleChatInputCommand(f.interaction), true); return f; }
+async function run(f) {
+  assert.equal(await handleChatInputCommand(f.interaction), true);
+  assert.deepEqual(f.violations, [], "mock contracts must be checked outside handler catch blocks");
+  return f;
+}
 
 test("resource defaults are live HTTPS website destinations; overrides validate and blanks fall back", () => {
   assert.deepEqual(getResourceLinks(), { site: "https://tarkovtracker.org/", resources: "https://tarkovtracker.org/resources" });
@@ -96,6 +108,13 @@ test("resource defaults are live HTTPS website destinations; overrides validate 
   for (const url of ["http://example.com", "https://user:password@example.com", "javascript:alert(1)", "not a URL"]) {
     assert.throws(() => getResourceLinks({ TT_SITE_URL: url }));
   }
+});
+
+test("resource URLs obey Discord's 512-character link-button limit", () => {
+  const base = "https://example.com/";
+  const exact = base + "a".repeat(512 - base.length);
+  assert.equal(getResourceLinks({ TT_SITE_URL: exact }).site.length, 512);
+  assert.throws(() => getResourceLinks({ TT_SITE_URL: exact + "a" }));
 });
 
 test("message references accept IDs and same-channel links, rejecting other channels/guilds and malformed URLs", () => {
@@ -141,7 +160,7 @@ test("resource role allowlist is independent of administrative authorization", a
 
 test("resource replies fetch the same-channel message and never notify its author", async () => {
   const f = await run(fixture("tt", { action: "resources", reply_to: messageId }, { admin: false }));
-  assert.deepEqual(f.messageFetches, [messageId]);
+  assert.deepEqual(f.messageFetches, [{ message: messageId, force: true }]);
   assert.deepEqual(f.sent[0].reply, { messageReference: messageId, failIfNotExists: true });
   assert.deepEqual(f.sent[0].allowedMentions, { parse: [], repliedUser: false });
 });
@@ -168,7 +187,8 @@ test("/tt help is private and retired commands never perform their old actions",
 
 test("/message previews by default, refreshes authority, and sends without mention amplification", async () => {
   const f = await run(fixture("message", { content: "Hello\\n@everyone" }));
-  assert.match(f.edits[0].content, /nothing has been sent/);
+  assert.equal(f.edits[0].content, f.sent[0].content, "plain preview must match the actual plain-text payload");
+  assert.equal(f.edits[0].embeds, undefined);
   assert.equal(f.sent[0].content, "Hello\n@everyone");
   assert.deepEqual(f.sent[0].allowedMentions, { parse: [], repliedUser: false });
   assert.equal(f.edits.at(-1).content, "Message sent.");
@@ -186,7 +206,7 @@ test("/message supports explicitly skipping preview, styled embeds, and safe rep
   const f = await run(fixture("message", { content: "Welcome", title: "News", preview: false, reply_to: messageId }));
   assert.equal(f.sent[0].embeds[0].toJSON().title, "News");
   assert.equal(f.sent[0].reply.messageReference, messageId);
-  assert.deepEqual(f.messageFetches, [messageId]);
+  assert.deepEqual(f.messageFetches, [{ message: messageId, force: true }]);
 });
 
 test("/message denies non-admins and does not claim success when delivery errors", async () => {
@@ -235,6 +255,7 @@ test("two overlapping channel operations cannot both open or mutate; the lock re
   assert.equal(second.channelEdits.length, 0, "overlapping moderation must not mutate twice");
   assert.match(second.replies[0].content, /already open/);
   await running;
+  assert.deepEqual(first.violations, []);
   const third = await run(fixture("channel", { action: "archive" }));
   assert.equal(third.channelEdits.length, 1);
 });
@@ -264,11 +285,12 @@ test("archive rejects non-text sources and misconfigured @everyone admin access"
   assert.match(wrongType.replies[0].content, /Only server text channels/);
   adminRoles.clear(); adminRoles.add(guildId);
   const everyone = fixture("channel", { action: "archive" });
-  everyone.interaction.member.roles.cache.set(guildId, { id: guildId });
+  everyone.interaction.member.roles.cache.set(guildId, { id: guildId, name: "@everyone", guild: { id: guildId } });
   everyone.interaction.guild.roles.fetch = async () => new Collection([[guildId, { id: guildId }]]);
   await run(everyone);
   assert.equal(everyone.channelEdits.length, 0);
-  assert.match(everyone.edits.at(-1).content, /could not be confirmed/);
+  // The shared helper should reject @everyone before opening a confirmation.
+  assert.match(everyone.replies[0]?.content ?? everyone.edits.at(-1)?.content, /Only configured admins/);
 });
 
 test("a failed archive releases its channel lock for the next operation", async () => {
@@ -307,6 +329,55 @@ test("purge failures report the actual partial deletion count", async () => {
   await run(f);
   assert.match(f.edits.at(-1).embeds[0].toJSON().description, /stopped after deleting 100/);
   assert.deepEqual(f.edits.at(-1).components, []);
+});
+
+test("@everyone can never authorize administrative commands even when misconfigured", () => {
+  adminRoles.add(guildId);
+  const roles = new Collection([[guildId, { id: guildId, name: "@everyone", guild: { id: guildId } }]]);
+  assert.equal(hasAdminRole(roles), false);
+});
+
+test("message previews preserve styled payloads exactly", async () => {
+  const f = await run(fixture("message", { content: "A styled announcement", title: "News" }));
+  assert.equal(f.edits[0].content, undefined);
+  assert.deepEqual(f.edits[0].embeds[0].toJSON(), f.sent[0].embeds[0].toJSON());
+});
+
+test("missing message targets fail before preview and never send", async () => {
+  const f = await run(fixture("message", { content: "Not sent", reply_to: messageId }, { targetError: true }));
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.edits.some(edit => edit.components?.length), false, "do not offer Send for an invalid target");
+  assert.match(f.edits.at(-1).content, /Nothing was sent/);
+});
+
+test("resource replies distinguish missing targets from unconfirmed sends", async () => {
+  const missing = await run(fixture("tt", { reply_to: messageId }, { targetError: true }));
+  assert.equal(missing.sent.length, 0);
+  assert.match(missing.edits.at(-1).content, /Nothing was sent/);
+  const failed = await run(fixture("tt", { reply_to: messageId }, { sendError: true }));
+  assert.match(failed.edits.at(-1).content, /Check the channel before/);
+});
+
+test("a failed archive confirmation notice never reports that the applied archive failed", async () => {
+  const f = fixture("channel", { action: "archive" });
+  const editReply = f.interaction.editReply;
+  f.interaction.editReply = async data => {
+    if (f.channelEdits.length) throw new Error("Notice delivery failed");
+    return editReply(data);
+  };
+  await assert.doesNotReject(run(f));
+  assert.equal(f.channelEdits.length, 1);
+  assert.equal(console.warn.mock.calls.at(-1).arguments[0], "Archive applied but confirmation notice failed");
+});
+
+test("archive preflights Manage Roles and logs stable configuration diagnostics", async () => {
+  const missingPermission = await run(fixture("channel", { action: "archive" }, { botManageRoles: false }));
+  assert.equal(missingPermission.channelEdits.length, 0);
+  assert.match(missingPermission.edits.at(-1).content, /Manage Roles/);
+  const badRoles = fixture("channel", { action: "archive" });
+  badRoles.interaction.guild.roles.fetch = async () => new Collection();
+  await run(badRoles);
+  assert.equal(console.error.mock.calls.at(-1).arguments[1].code, "ARCHIVE_ADMIN_ROLES_INVALID");
 });
 
 test("purge rejects out-of-range counts before confirmation", async () => {

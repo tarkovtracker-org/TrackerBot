@@ -98,7 +98,7 @@ export async function executeWipe(interaction) {
       await buttonInteraction.update({
         embeds: [
           createCardEmbed({
-            title: "Wipe Cancelled",
+            title: "Purge Cancelled",
             description: "Channel wipe was cancelled.",
             color: colors.info
           })
@@ -146,7 +146,7 @@ export async function executeWipe(interaction) {
     await interaction.editReply({
       embeds: [
         createCardEmbed({
-          title: "Channel Wiped",
+          title: "Message Purge Complete",
           description: `Deleted ${totalDeleted} of up to ${requested} message(s).\n\nMessages older than 14 days cannot be bulk-deleted and were skipped.${hitCap ? "\n\nBatch limit reached — run /channel purge again to continue." : ""}`,
           color: colors.success
         })
@@ -159,7 +159,7 @@ export async function executeWipe(interaction) {
       await interaction.editReply({
         embeds: [
           createCardEmbed({
-            title: "Wipe Timed Out",
+            title: "Purge Timed Out",
             description: "Confirmation timed out. Please run /channel purge again.",
             color: colors.error
           })
@@ -173,7 +173,7 @@ export async function executeWipe(interaction) {
     await interaction.editReply({
       embeds: [
         createCardEmbed({
-          title: "Wipe Failed",
+          title: "Message Purge Failed",
           description: `Purge stopped after deleting ${totalDeleted} message(s). Check the channel and bot permissions before trying again.`,
           color: colors.error
         })

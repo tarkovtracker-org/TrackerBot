@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
 import { hasAdminRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
-import { messageReference, noMentions, postInChannel } from "../utils/messageReply.js";
+import { messageReference, noMentions, postInChannel, validateReplyTarget } from "../utils/messageReply.js";
 
 async function currentAdmin(interaction) {
   const member = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
@@ -34,11 +34,11 @@ export async function executeMessage(interaction) {
     }
     const payload = title ? { embeds: [createCardEmbed({ title, description: content })] } : { content };
     if (interaction.options.getBoolean("preview") !== false) {
+      await validateReplyTarget(interaction, reference);
       const sendId = `send_message:${interaction.id}`;
       const cancelId = `cancel_message:${interaction.id}`;
       const preview = await interaction.editReply({
-        content: `Preview only — nothing has been sent.${reference ? " This will reply to the selected message." : ""} Mentions will not notify anyone.`,
-        embeds: [createCardEmbed({ title: title || "Message preview", description: content })],
+        ...payload,
         components: [new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId(sendId).setLabel("Send message").setStyle(ButtonStyle.Primary),
           new ButtonBuilder().setCustomId(cancelId).setLabel("Cancel").setStyle(ButtonStyle.Secondary)
@@ -60,13 +60,17 @@ export async function executeMessage(interaction) {
       }
     }
     await postInChannel(interaction, payload, reference);
-    await interaction.editReply({ content: "Message sent.", embeds: [], components: [], allowedMentions: noMentions });
+    await interaction.editReply({ content: "Message sent.", embeds: [], components: [], allowedMentions: noMentions }).catch(err => {
+      console.warn("Message sent but confirmation notice failed", { code: err.code ?? "unknown" });
+    });
   } catch (err) {
     console.error("Bot message failed", { code: err.code ?? "unknown" });
     await interaction.editReply({
-      content: err.code === "InteractionCollectorError"
-        ? "Preview expired. Nothing was sent; run /message again."
-        : "Message could not be confirmed. Check the channel before sending again; contact staff if needed.",
+      content: err.code === "REPLY_TARGET_UNAVAILABLE"
+        ? "The reply target could not be loaded in this channel. Nothing was sent. Check the message link or ID."
+        : err.code === "InteractionCollectorError"
+          ? "Preview expired. Nothing was sent; run /message again."
+          : "Message could not be confirmed. Check the channel before sending again; contact staff if needed.",
       embeds: [], components: []
     });
   }

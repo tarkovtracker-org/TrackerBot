@@ -3,8 +3,8 @@
 export function getResourceLinks(env = process.env) {
   function httpsUrl(value, label) {
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password || url.href.length > 2048) {
-      throw new Error(`${label} must be an HTTPS URL without embedded credentials`);
+    if (url.protocol !== "https:" || url.username || url.password || url.href.length > 512) {
+      throw new Error(`${label} must be an HTTPS URL without embedded credentials, at most 512 characters`);
     }
     return url.href;
   }

@@ -37,7 +37,8 @@ export async function executeResource(interaction) {
     if (reference && privateReply) throw new Error("Replies to messages are public; remove reply_to or set private:false.");
     links = getResourceLinks();
   } catch (err) {
-    console.warn("Resource command configuration or reference rejected");
+    // Only our static validation messages are logged, never the full URL/error.
+    console.warn("Resource command configuration or reference rejected", { reason: err.message });
     await interaction.reply({
       content: err.message.startsWith("Use a message") || err.message.startsWith("Replies to")
         ? err.message : "The resource links need staff attention. Please contact an administrator.",
@@ -61,6 +62,17 @@ export async function executeResource(interaction) {
     return;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  await postInChannel(interaction, payload, reference);
-  await interaction.editReply({ content: "Resource shared in reply to the selected message." });
+  try {
+    await postInChannel(interaction, payload, reference);
+    await interaction.editReply({ content: "Resource shared in reply to the selected message." }).catch(err => {
+      console.warn("Resource shared but confirmation notice failed", { code: err.code ?? "unknown" });
+    });
+  } catch (err) {
+    console.error("Resource reply failed", { code: err.code ?? "unknown" });
+    await interaction.editReply({
+      content: err.code === "REPLY_TARGET_UNAVAILABLE"
+        ? "The reply target could not be loaded in this channel. Nothing was sent. Check the message link or ID."
+        : "Resource delivery could not be confirmed. Check the channel before sending again."
+    });
+  }
 }

@@ -17,7 +17,9 @@ export const adminRoles = new Set(
 );
 
 export function hasAdminRole(roleCache) {
-  return roleCache.some(role => adminRoles.has(role.id));
+  return roleCache.some(role =>
+    role.id !== role.guild?.id && role.name !== "@everyone" && adminRoles.has(role.id)
+  );
 }
 
 export const reactionRoleButtonConfig = [

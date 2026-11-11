@@ -54,23 +54,35 @@ export async function executeArchive(interaction) {
     }
     const roles = await guild.roles.fetch();
     if (!adminRoles.size || [...adminRoles].some(id => id === guild.id || !roles.has(id))) {
-      throw new Error("Configured archive admin roles are invalid in this guild");
+      throw Object.assign(new Error("Configured archive admin roles are invalid in this guild"), { code: "ARCHIVE_ADMIN_ROLES_INVALID" });
     }
     const bot = await guild.members.fetchMe();
     const channel = await guild.channels.fetch(interaction.channelId, { force: true });
-    if (channel?.type !== ChannelType.GuildText) throw new Error("Archive source is no longer a text channel");
+    if (channel?.type !== ChannelType.GuildText) {
+      throw Object.assign(new Error("Archive source is no longer a text channel"), { code: "ARCHIVE_SOURCE_INVALID" });
+    }
     const staffAccess = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
+    const botAccess = [...staffAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
+    if (!channel.permissionsFor(bot)?.has(botAccess)) {
+      await interaction.editReply({
+        content: "The bot needs View Channel, Send Messages, Read Message History, Manage Channels and Manage Roles here. Nothing changed; ask a server administrator to review its permissions.",
+        embeds: [], components: []
+      });
+      return;
+    }
     // One atomic channel edit: never inherit a public category's overwrites.
     await channel.edit({
       parent: category.id,
       permissionOverwrites: [
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: bot.id, allow: [...staffAccess, PermissionFlagsBits.ManageChannels] },
+        { id: bot.id, allow: botAccess },
         ...[...adminRoles].map(id => ({ id, allow: staffAccess }))
       ],
       reason: `Private audit archive requested by ${interaction.user.id}`
     });
-    await interaction.editReply({ content: "Channel archived for staff review. History was retained; no messages were deleted.", embeds: [], components: [] });
+    await interaction.editReply({ content: "Channel archived for staff review. History was retained; no messages were deleted.", embeds: [], components: [] }).catch(err => {
+      console.warn("Archive applied but confirmation notice failed", { code: err.code ?? "unknown" });
+    });
   } catch (err) {
     console.error("Channel archive failed", { code: err.code ?? "unknown" });
     await interaction.editReply({

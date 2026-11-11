@@ -56,6 +56,16 @@ export async function executeNuke(interaction) {
     return;
   }
 
+  // The installed SDK's create() cannot carry channel flags (e.g. spoiler opt-in).
+  // Never silently discard new Discord safety settings while deleting the source.
+  if (channel.flags?.bitfield) {
+    await interaction.reply({
+      content: "This channel has special flags that cannot be cloned safely by this bot version. Nothing was deleted; review its settings manually.",
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
+
   const affectedFeatures = getAffectedBotFeatures(channel.id);
   const isBotChannel = affectedFeatures.length > 0;
 
@@ -138,8 +148,15 @@ export async function executeNuke(interaction) {
       return;
     }
 
-    const oldChannel = channel;
     const guild = interaction.guild;
+    const oldChannel = await guild.channels.fetch(channel.id, { force: true });
+    if (oldChannel?.type !== ChannelType.GuildText || oldChannel.flags?.bitfield) {
+      await interaction.editReply({
+        content: "The channel settings changed and cannot be cloned safely. Nothing was deleted.",
+        embeds: [], components: []
+      });
+      return;
+    }
 
     // Clone the channel with all carry-over properties.
     const cloneOptions = {

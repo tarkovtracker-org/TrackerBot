@@ -243,18 +243,22 @@ roles do not have Discord Administrator, grant them access in **Server Settings 
 Integrations → TrackerBot → Commands**. Runtime checks still require a configured
 admin role even when a Discord UI override grants visibility. Administrative
 commands no longer require an unrelated hardcoded member role as well, and role
-names never authorize these commands. The old `PANEL_ADMIN_ROLE_ID` is unused.
+names never authorize these commands. `@everyone` is always rejected as an admin
+role even if its ID is misconfigured. The old `PANEL_ADMIN_ROLE_ID` is unused.
 
-Resource sharing is public by default, requires the invoking member to be able to
-post in that channel/thread, and can optionally be restricted through
-`ALLOWED_COMMAND_ROLE_IDS`. `private:true` only shows the resource to the caller.
+Resource sharing is public by default. **Public** shares require the invoking
+member to be able to post in that channel/thread. `private:true` remains available
+in read-only channels and only shows the resource to the caller. Sharing can
+optionally be restricted through `ALLOWED_COMMAND_ROLE_IDS`.
 `reply_to` accepts a message ID or a `https://discord.com/channels/...` link **from
 the same server and channel**. A public message reply uses a private acknowledgement;
 it never silently redirects to another channel or falls back to an unrelated post.
 Private sharing cannot also target a public message. Replies and announcements
 suppress all mention notifications, including the replied-to author.
 
-`/message` previews expire after one minute; Cancel/expiry sends nothing. Use
+`/message` previews show the actual plain-text or styled payload and expire after
+one minute; Cancel/expiry sends nothing. Reply targets are validated before offering
+a preview and refreshed before sending; missing targets never fall back to a post. Use
 `preview:false` explicitly to skip the preview. Admin authority is refreshed before
 sending and again after a preview confirmation. Delivery errors never claim success;
 check the channel before repeating an unconfirmed send. For example:
@@ -270,7 +274,8 @@ check the channel before repeating an unconfirmed send. For example:
 Optional HTTPS link overrides: `TT_SITE_URL` defaults to
 `https://tarkovtracker.org/`; `TT_RESOURCES_URL` defaults to `/resources` on the
 configured site's origin. Blank values keep defaults. Invalid URLs, non-HTTPS
-schemes and embedded credentials fail closed rather than publishing unsafe links.
+schemes, embedded credentials and URLs over Discord's 512-character link-button
+limit fail closed rather than publishing unsafe links.
 No FAQ/status content is copied from the website into the bot.
 
 ### Private audit archives
@@ -278,7 +283,9 @@ No FAQ/status content is copied from the website into the bot.
 Set optional `ARCHIVE_CATEGORY_ID` to a category in the same guild. Unset/blank
 uses the existing **Archive** category (case-insensitive, trimmed); invalid
 explicit IDs never fall back. `/channel archive` is deliberately **not a delete**:
-it confirms the action and atomically moves the text channel while replacing
+it confirms the action, preflights the bot's View Channel, Send Messages, Read
+Message History, Manage Channels **and Manage Roles** permissions, then atomically
+moves the text channel while replacing
 its overwrites with `@everyone` denied View Channel and only the configured admin
 roles and bot allowed access. Discord administrators inherently retain access.
 It never inherits a possibly public category's grants. Reviewers can inspect the
@@ -303,7 +310,9 @@ one-off mass mutation, not routine support; join auto-roles remain unchanged.
 receive a private pointer to `/tt help` and never run the removed actions.
 
 This source change does not execute command registration, change production
-settings, move channels or send live announcements during tests. Deploy/restart
+settings, move channels or send live announcements during tests. `/nuke` refreshes
+source settings after confirmation and refuses channels with flags that the
+installed SDK cannot safely clone (for example, newer spoiler opt-in flags). Deploy/restart
 when approved, review Integrations permissions, then perform non-destructive
 smoke tests first. Official API references:
 [application commands](https://docs.discord.com/developers/interactions/application-commands),

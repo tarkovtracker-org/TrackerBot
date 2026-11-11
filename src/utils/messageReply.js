@@ -11,8 +11,18 @@ export function messageReference(value, interaction) {
 
 export const noMentions = { parse: [], repliedUser: false };
 
+export async function validateReplyTarget(interaction, reference) {
+  if (!reference) return;
+  try {
+    await interaction.channel.messages.fetch({ message: reference, force: true });
+  } catch {
+    // This failed before any send: unlike a failed POST, delivery is not uncertain.
+    throw Object.assign(new Error("Reply target unavailable"), { code: "REPLY_TARGET_UNAVAILABLE" });
+  }
+}
+
 export async function postInChannel(interaction, payload, reference) {
-  if (reference) await interaction.channel.messages.fetch(reference);
+  await validateReplyTarget(interaction, reference);
   return interaction.channel.send({
     ...payload,
     allowedMentions: noMentions,
