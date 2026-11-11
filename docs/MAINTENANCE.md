@@ -11,8 +11,9 @@
   and the corresponding upstream tag; inspect runtime changes and install scripts.
   Keep evidence in the PR and prove the regression fails with the old dependency.
 - `npm run audit:prod` blocks advisories at **low and above**, on Linux and Windows.
-  The same CI runs weekly even without commits. Keep Socket/Snyk checks enabled;
-  investigate their findings rather than weakening gates or granting exceptions.
+  The same CI runs weekly even without commits. Socket/Snyk checks are external
+  integrations, not configured by this workflow; keep those integrations enabled
+  and investigate findings rather than weakening gates or granting exceptions.
 - Exact transitive overrides may need manual updates when Dependabot cannot change
   them. A clean audit must cover the resolved lockfile, not only package.json.
 - CI uses an exact supported Node 24 LTS patch. Review Node security announcements

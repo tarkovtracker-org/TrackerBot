@@ -20,7 +20,13 @@ test("security overrides are exact pins and installed at the requested version",
   assert.ok(Object.keys(manifest.overrides).length, "security overrides must not silently disappear");
   for (const [name, version] of Object.entries(manifest.overrides)) {
     assert.match(version, exact, `${name} override must be exact`);
-    assert.equal(lock.packages[`node_modules/${name}`].version, version);
+    const copies = Object.entries(lock.packages).filter(([location]) =>
+      location === `node_modules/${name}` || location.endsWith(`/node_modules/${name}`)
+    );
+    assert.ok(copies.length, `${name} override must resolve to an installed package`);
+    for (const [location, entry] of copies) {
+      assert.equal(entry.version, version, `${location} must respect the global override`);
+    }
   }
 });
 
