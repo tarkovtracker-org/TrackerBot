@@ -9,13 +9,15 @@ async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), "trackerbot-build-test-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  // Keep the fixture tied to the hosting command without spawning npm's .cmd shim.
+  assert.equal(manifest.scripts.build, "node scripts/check-syntax.js", "Update the fixture when the hosting command changes");
   await writeFile(path.join(directory, "package.json"), JSON.stringify({ type: "module", scripts: { build: manifest.scripts.build } }));
   await mkdir(path.join(directory, "scripts"));
   await writeFile(path.join(directory, "scripts/check-syntax.js"), await readFile(new URL("../scripts/check-syntax.js", import.meta.url), "utf8"));
   await writeFile(path.join(directory, "bot.js"), "export const bot = true;\n");
   await writeFile(path.join(directory, "webserver.js"), "export const web = true;\n");
   return { directory, build() {
-    return spawnSync("npm", ["run", "build", "--silent"], { cwd: directory, encoding: "utf8", timeout: 10000 });
+    return spawnSync(process.execPath, ["scripts/check-syntax.js"], { cwd: directory, encoding: "utf8", timeout: 10000 });
   } };
 }
 
@@ -36,7 +38,7 @@ test("the build fails on syntax errors in nested source files", async t => {
   const result = api.build();
   assert.ifError(result.error);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /Syntax check failed: src\/web\/broken.js/);
+  assert.match(result.stderr, /Syntax check failed: src[\\/]web[\\/]broken\.js/);
 });
 
 test("the build ignores installed dependencies and Git metadata", async t => {
