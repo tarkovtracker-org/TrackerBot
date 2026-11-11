@@ -56,6 +56,16 @@ export async function executeNuke(interaction) {
     return;
   }
 
+  // The installed SDK's create() cannot carry channel flags (e.g. spoiler opt-in).
+  // Never silently discard new Discord safety settings while deleting the source.
+  if (channel.flags?.bitfield) {
+    await interaction.reply({
+      content: "This channel has special flags that cannot be cloned safely by this bot version. Nothing was deleted; review its settings manually.",
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
+
   const affectedFeatures = getAffectedBotFeatures(channel.id);
   const isBotChannel = affectedFeatures.length > 0;
 
@@ -85,7 +95,7 @@ export async function executeNuke(interaction) {
 
   const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
 
-  const reply = await interaction.reply({
+  await interaction.reply({
     embeds: [
       createCardEmbed({
         title: "Confirm Channel Nuke",
@@ -102,6 +112,7 @@ export async function executeNuke(interaction) {
     (i.customId === "confirm_nuke" || i.customId === "cancel_nuke");
 
   try {
+    const reply = await interaction.fetchReply();
     const buttonInteraction = await reply.awaitMessageComponent({
       filter,
       time: CONFIRM_TIMEOUT_MS
@@ -123,8 +134,29 @@ export async function executeNuke(interaction) {
 
     await buttonInteraction.deferUpdate();
 
-    const oldChannel = channel;
+    // Authority may have changed while the confirmation was open; bypass cache.
+    const member = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
+    if (!hasAdminRole(member.roles.cache)) {
+      await interaction.editReply({
+        embeds: [createCardEmbed({
+          title: "Permission Required",
+          description: "Your admin access has changed. Nothing was deleted.",
+          color: colors.error
+        })],
+        components: []
+      });
+      return;
+    }
+
     const guild = interaction.guild;
+    const oldChannel = await guild.channels.fetch(channel.id, { force: true });
+    if (oldChannel?.type !== ChannelType.GuildText || oldChannel.flags?.bitfield) {
+      await interaction.editReply({
+        content: "The channel settings changed and cannot be cloned safely. Nothing was deleted.",
+        embeds: [], components: []
+      });
+      return;
+    }
 
     // Clone the channel with all carry-over properties.
     const cloneOptions = {
@@ -140,6 +172,9 @@ export async function executeNuke(interaction) {
 
     if (oldChannel.defaultAutoArchiveDuration) {
       cloneOptions.defaultAutoArchiveDuration = oldChannel.defaultAutoArchiveDuration;
+    }
+    if (oldChannel.defaultThreadRateLimitPerUser != null) {
+      cloneOptions.defaultThreadRateLimitPerUser = oldChannel.defaultThreadRateLimitPerUser;
     }
 
     let clonedChannel;

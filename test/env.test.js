@@ -46,7 +46,7 @@ test("ensureEnvVars passes when all vars are set", async () => {
   setEnv("AUTO_ROLE_ID_2", "r");
   setEnv("AUTO_ROLE_ID_3", "r");
   setEnv("AUTO_ROLE_ID_4", "r");
-  setEnv("PANEL_ADMIN_ROLE_ID", "r");
+  delete process.env.PANEL_ADMIN_ROLE_ID; // retired with the one-off bulk-role command
   setEnv("ADMIN_ROLE_ID", "r");
 
   const { ensureEnvVars } = await importEnv();
