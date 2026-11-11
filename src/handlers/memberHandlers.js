@@ -10,12 +10,20 @@ const welcomeMessages = new Map();
 
 export function registerMemberHandlers(client) {
   client.on(Events.GuildMemberAdd, async member => {
-    await assignJoinRoles(member);
-    await sendWelcomeMessage(member);
+    try {
+      await assignJoinRoles(member);
+      await sendWelcomeMessage(member);
+    } catch (err) {
+      console.error("Member join handler failed", { code: err?.code ?? "unknown" });
+    }
   });
 
   client.on(Events.GuildMemberRemove, async member => {
-    await cleanupWelcomeMessage(member);
+    try {
+      await cleanupWelcomeMessage(member);
+    } catch (err) {
+      console.error("Member leave handler failed", { code: err?.code ?? "unknown" });
+    }
   });
 }
 
@@ -59,9 +67,10 @@ async function sendWelcomeMessage(member) {
   const channel = member.guild.channels.cache.get(channelId);
   if (!channel?.isTextBased()) return;
 
-  const message = await channel.send(
-    `Welcome to the **TarkovTracker.org** Discord server ${member}.`
-  );
+  const message = await channel.send({
+    content: `Welcome to the **TarkovTracker.org** Discord server ${member}.`,
+    allowedMentions: { parse: [], users: [member.id] }
+  });
 
   welcomeMessages.set(member.id, message.id);
 }
