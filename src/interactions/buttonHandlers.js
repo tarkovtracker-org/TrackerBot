@@ -1,5 +1,5 @@
 import { ChannelType, PermissionFlagsBits, MessageFlags } from "discord.js";
-import { reactionRoleNameMap } from "../config/constants.js";
+import { reactionRoleNameMap, getTicketStaffRoleIds, getNotificationRoleId, isSafeNotificationRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 
 const colors = {
@@ -8,39 +8,49 @@ const colors = {
   info: 0x7f8cff
 };
 
+// Serialize same-member ticket creation and notification toggles independently.
+// Like the rest of the bot, this lock is process-local, not distributed.
+const activeButtons = new Set();
+
 export async function handleButtonInteraction(interaction) {
   if (!interaction.isButton()) return false;
-
-  if (interaction.customId === "create_ticket") {
-    await handleTicketCreation(interaction);
+  const ticket = interaction.customId === "create_ticket";
+  const roleName = reactionRoleNameMap[interaction.customId];
+  if (!ticket && !roleName) return false;
+  if (!interaction.guild || !interaction.member?.id) {
+    await interaction.reply({ content: "Use this button in a server where the bot is available.", flags: MessageFlags.Ephemeral });
     return true;
   }
-
-  if (reactionRoleNameMap[interaction.customId]) {
-    await toggleReactionRole(interaction, reactionRoleNameMap[interaction.customId]);
+  try {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  } catch (err) {
+    console.warn("Unable to acknowledge button interaction", { code: err?.code ?? "unknown" });
     return true;
   }
-
-  return false;
+  const key = `${interaction.guild.id}:${interaction.member.id}:${ticket ? "ticket" : "roles"}`;
+  if (activeButtons.has(key)) {
+    await interaction.editReply({ content: "Your previous action is already in progress. Wait for its result before trying again." });
+    return true;
+  }
+  activeButtons.add(key);
+  try {
+    if (ticket) await handleTicketCreation(interaction);
+    else await toggleReactionRole(interaction, roleName);
+  } finally {
+    activeButtons.delete(key);
+  }
+  return true;
 }
 
 async function handleTicketCreation(interaction) {
   const guild = interaction.guild;
   const member = interaction.member;
 
-  // Acknowledge before fetching channels or creating a ticket (Discord allows 3 seconds).
-  try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  } catch (err) {
-    console.warn("Unable to acknowledge ticket interaction:", err);
-    return;
-  }
-
   let channels;
   try {
     channels = await guild.channels.fetch();
   } catch (err) {
-    console.error("Error fetching ticket channels:", err);
+    console.error("Error fetching ticket channels:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
     await interaction.editReply({
       embeds: [
         createCardEmbed({
@@ -96,9 +106,32 @@ async function handleTicketCreation(interaction) {
     return;
   }
 
-  const adminRole = guild.roles.cache.find(
-    role => role.name.toLowerCase() === "discord admin"
-  );
+  const configuredStaffIds = getTicketStaffRoleIds();
+  let staffRoles;
+  let bot;
+  try {
+    if (configuredStaffIds) {
+      const roles = await guild.roles.fetch();
+      staffRoles = configuredStaffIds.map(id => roles.get(id));
+      if (!staffRoles.length || staffRoles.some(role => !role || role.id === guild.id || role.name === "@everyone")) {
+        throw Object.assign(new Error("Invalid ticket staff configuration"), { code: "TICKET_STAFF_ROLES_INVALID" });
+      }
+    } else {
+      const legacy = guild.roles.cache.find(role => role.name.trim().toLowerCase() === "discord admin");
+      staffRoles = legacy ? [legacy] : [];
+    }
+    bot = guild.members.me ?? await guild.members.fetchMe();
+  } catch (err) {
+    console.warn("Ticket staff configuration unavailable", { code: err?.code ?? "unknown" });
+    await interaction.editReply({
+      embeds: [createCardEmbed({
+        title: "Ticket support unavailable",
+        description: "Staff need to review the ticket support role configuration. Please contact a server administrator.",
+        color: colors.error
+      })]
+    });
+    return;
+  }
 
   const overwrites = [
     {
@@ -114,7 +147,7 @@ async function handleTicketCreation(interaction) {
       ]
     },
     {
-      id: guild.members.me.id,
+      id: bot.id,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -125,17 +158,11 @@ async function handleTicketCreation(interaction) {
     }
   ];
 
-  if (adminRole) {
-    overwrites.push({
-      id: adminRole.id,
-      allow: [
-        PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.SendMessages,
-        PermissionFlagsBits.ReadMessageHistory,
-        PermissionFlagsBits.ManageMessages,
-        PermissionFlagsBits.ManageChannels
-      ]
-    });
+  for (const role of staffRoles) {
+    const allow = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
+    // Preserve the legacy overwrite; explicit staff IDs get only conversation access.
+    if (!configuredStaffIds) allow.push(PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ManageChannels);
+    overwrites.push({ id: role.id, allow });
   }
 
   try {
@@ -152,12 +179,14 @@ async function handleTicketCreation(interaction) {
         embeds: [
           createCardEmbed({
             title: "Ticket created",
-            description: `${member} we opened a private channel for you.\nA member of the <@&${adminRole?.id || ""}> team will assist shortly.`,
+            description: `<@${member.id}> we opened a private channel for you.\n${staffRoles.length ? `The ${staffRoles.map(role => `<@&${role.id}>`).join(", ")} team can assist here.` : "A server administrator can assist here."}`,
             color: colors.info
           })
         ]
       }
-    );
+    ).catch(err => {
+      console.warn("Ticket created but opening notice failed", { code: err?.code ?? "unknown" });
+    });
 
     await interaction.editReply({
       embeds: [
@@ -167,14 +196,16 @@ async function handleTicketCreation(interaction) {
           color: colors.success
         })
       ]
+    }).catch(err => {
+      console.warn("Ticket created but confirmation notice failed", { code: err?.code ?? "unknown" });
     });
   } catch (err) {
-    console.error("Error creating ticket:", err);
+    console.error("Error creating ticket:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
     await interaction.editReply({
       embeds: [
         createCardEmbed({
-          title: "Ticket failed",
-          description: "Failed to create ticket. Please try again later or contact staff.",
+          title: "Ticket status unconfirmed",
+          description: "Ticket creation could not be confirmed. A private channel may already exist. Check Support and contact staff before retrying.",
           color: colors.error
         })
       ]
@@ -184,63 +215,55 @@ async function handleTicketCreation(interaction) {
 
 async function toggleReactionRole(interaction, roleName) {
   const guild = interaction.guild;
-  const member = interaction.member;
-
-  const role = guild.roles.cache.find(
-    guildRole => guildRole.name.toLowerCase() === roleName.toLowerCase()
-  );
-
-  if (!role) {
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Role missing",
-          description: "Role unavailable. Please contact an admin.",
-          color: colors.error
-        })
-      ],
-      flags: MessageFlags.Ephemeral
-    });
-    return;
-  }
-
   try {
-    if (member.roles.cache.has(role.id)) {
-      await member.roles.remove(role);
-      await interaction.reply({
-        embeds: [
-          createCardEmbed({
-            title: "Role removed",
-            description: `${role.name} notifications disabled.`,
-            color: colors.info
-          })
-        ],
-        flags: MessageFlags.Ephemeral
-      });
-    } else {
-      await member.roles.add(role);
-      await interaction.reply({
-        embeds: [
-          createCardEmbed({
-            title: "Role added",
-            description: `${role.name} notifications enabled.`,
-            color: colors.success
-          })
-        ],
-        flags: MessageFlags.Ephemeral
-      });
-    }
-  } catch (err) {
-    console.error("Role error:", err);
-    await interaction.reply({
-      embeds: [
-        createCardEmbed({
-          title: "Role update failed",
-          description: "Failed to update role.",
+    const roles = await guild.roles.fetch();
+    const roleId = getNotificationRoleId(interaction.customId);
+    const role = roleId ? roles.get(roleId) : roles.find(candidate =>
+      candidate.name.trim().toLowerCase() === roleName.toLowerCase()
+    );
+    if (!role) {
+      await interaction.editReply({
+        embeds: [createCardEmbed({
+          title: "Role missing",
+          description: "Notification role unavailable. Please contact an admin.",
           color: colors.error
-        })
-      ],
-      flags: MessageFlags.Ephemeral
+        })]
+      });
+      return;
+    }
+    if (!isSafeNotificationRole(role, guild.id)) {
+      console.warn("Notification role rejected", { roleId: role.id });
+      await interaction.editReply({
+        embeds: [createCardEmbed({
+          title: "Role unavailable",
+          description: "Staff must configure a dedicated, safe notification role below the bot's role.",
+          color: colors.error
+        })]
+      });
+      return;
+    }
+    const member = await guild.members.fetch({ user: interaction.member.id, force: true });
+    const remove = member.roles.cache.has(role.id);
+    if (remove) await member.roles.remove(role.id);
+    else await member.roles.add(role.id);
+    await interaction.editReply({
+      embeds: [createCardEmbed({
+        title: remove ? "Role removed" : "Role added",
+        description: `${role.name} notifications ${remove ? "disabled" : "enabled"}.`,
+        color: remove ? colors.info : colors.success
+      })],
+      allowedMentions: { parse: [] }
+    }).catch(err => {
+      console.warn("Notification role changed but confirmation notice failed", { code: err?.code ?? "unknown" });
+    });
+  } catch (err) {
+    console.error("Notification role update failed", { code: err?.code ?? "unknown" });
+    await interaction.editReply({
+      embeds: [createCardEmbed({
+        title: "Role update failed",
+        description: "The update could not be confirmed. Check your roles before trying again or contact staff.",
+        color: colors.error
+      })]
     });
   }
 }

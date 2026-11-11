@@ -213,10 +213,27 @@ existing ticket in that category, rather than relying on an incomplete cache.
 
 For a minimal server, keep one public ticket-entry channel under **Support** and
 place private ticket channels in that same category; a separate Tickets category
-is not required. Ticket permission overwrites remain explicit: the requester,
+is not required. By default, ticket permission overwrites remain explicit: the requester,
 bot, and existing `Discord Admin` role receive access; `@everyone` is denied.
 Server administrators retain Discord's inherent access. The bot still needs its
-existing channel-management permissions; this change does not grant new access.
+existing channel-management permissions; no new server permissions are granted to the bot.
+
+For stable staff access, set optional comma-separated `TICKET_STAFF_ROLE_IDS`.
+Each explicit role must exist in the same server and cannot be `@everyone`;
+invalid explicit lists (including blank comma-separated items) fail closed.
+Explicit ticket overwrites add only View Channel, Send Messages and Read Message
+History, not management permission bits. Existing role/member permissions still
+apply; these overwrites do not restrict existing powers. Choose dedicated basic
+support roles if limited staff powers are required. Unset/blank preserves the existing name-based
+`Discord Admin` fallback and its old management overwrite; no existing ticket
+permissions are rewritten. Discord administrators retain inherent access.
+
+Overlapping clicks from the same member cannot create two simultaneous tickets
+in this bot process. Ticket creation and notification-role toggles acknowledge
+privately before API calls. Failed opening/confirmation notices never claim that
+an already-created ticket was not created; check the actual channel before
+repeating an unconfirmed action. Locks are not shared across multiple workers.
+
 Changing the destination only affects new tickets and duplicate checks there; it
 does not move, reopen, or delete existing tickets. Review outstanding tickets
 before changing destinations.
@@ -327,6 +344,40 @@ when approved, review Integrations permissions, then perform non-destructive
 smoke tests first. Official API references:
 [application commands](https://docs.discord.com/developers/interactions/application-commands),
 [interaction replies](https://discord.js.org/docs/packages/discord.js/14.26.4/ChatInputCommandInteraction:Class).
+
+## Notification-role configuration
+
+Existing button custom IDs remain recognized; availability depends on the role
+safety checks below. Optional stable ID overrides survive role renames: `REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
+`REACTION_ROLE_POLLS_ID`, `REACTION_ROLE_NEWS_ID`, `REACTION_ROLE_NOTIFS_ID`.
+Unset/blank values use the legacy names `site`, `monitor`, `polls`, `news`, `notifs`
+(case-insensitive, trimmed). Invalid explicit IDs never silently fall back.
+
+Use dedicated notification roles with **no administrative/moderation powers**.
+Only ordinary view/send/history/reaction/embed/attachment/voice communication
+capabilities and application-command use are permitted by the safety mask;
+unknown future permission flags fail closed. Managed roles, `@everyone`, roles
+above the bot, configured `ADMIN_ROLE_ID` roles, configured ticket staff roles,
+and the legacy `Discord Admin` role cannot be self-assigned or removed through
+these buttons. The bot must already have Manage Roles and the right hierarchy;
+this code never grants itself server permissions.
+
+Before upgrading, review legacy notification roles for unsupported flags such as
+`CreatePublicThreads` and `ChangeNickname`. Members cannot assign **or remove** a
+noncompliant role through its button. After reviewing the effects, remove
+unsupported flags from a dedicated notification role or configure a separate
+compliant role; never weaken the safety mask or remove necessary staff powers to
+make a button work. Existing memberships are not automatically migrated or
+removed. Staff must handle legacy opt-outs manually when retiring an old role.
+
+Review each selected role's channel overwrites as well as its guild permissions
+before configuring it: a role can expose private channels even with zero base
+permission flags. Source-level checks cannot certify your live role/channel
+policy. Membership and role definitions are fetched before toggling, and rapid
+same-member toggles are serialized in this one bot process. A failed confirmation
+notice does not imply the role update failed. No existing panel is reposted and
+no live role/category permissions are edited by these tests.
+
 
 ## Project structure
 
