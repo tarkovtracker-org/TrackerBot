@@ -11,7 +11,7 @@ beforeEach(t => {
 });
 afterEach(() => adminRoles.delete("staff"));
 
-function fixture(command, { cancel = false, timeout = false, revoked = false, memberError = false, cloneError = false, deleteError = false, bulkError = false } = {}) {
+function fixture(command, { cancel = false, timeout = false, revoked = false, memberError = false, cloneError = false, deleteError = false, bulkError = false, buttonError } = {}) {
   const events = [];
   const edits = [];
   const notices = [];
@@ -38,7 +38,10 @@ function fixture(command, { cancel = false, timeout = false, revoked = false, me
   const button = {
     customId: `${cancel ? "cancel" : "confirm"}_${command}`,
     user: { id: "actor" },
-    deferUpdate: async () => events.push("ack-button"),
+    deferUpdate: async () => {
+      events.push("ack-button");
+      if (buttonError !== undefined) throw buttonError;
+    },
     update: async data => { events.push("cancel"); edits.push(data); }
   };
   const interaction = {
@@ -104,6 +107,19 @@ for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe
     if (name === "nuke") assert.ok(f.events.indexOf("clone") < f.events.indexOf("delete"));
     else assert.match(f.edits.at(-1).embeds[0].toJSON().description, /Deleted 1\b/);
   });
+
+  for (const failure of [Object.assign(new Error("Synthetic Discord failure"), {
+    code: 10062,
+    url: "https://discord.com/api/v10/interactions/test-id/synthetic-interaction-token/callback",
+    requestBody: { json: { content: "private synthetic preview" } }
+  }), null]) {
+    test(`${name}: failed callback keeps credential-bearing error details out of diagnostics (${failure === null ? "null" : "API error"})`, async () => {
+      const f = fixture(name, { buttonError: failure });
+      await assert.doesNotReject(execute(f.interaction));
+      assert.equal(f.events.includes(operation), false);
+      assert.deepEqual(console.error.mock.calls.at(-1).arguments[1], { code: failure?.code ?? "unknown" });
+    });
+  }
 
   test(`${name}: cancel does not mutate the channel`, async () => {
     const f = fixture(name, { cancel: true });
