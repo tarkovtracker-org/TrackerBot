@@ -8,6 +8,7 @@ import { executeWipe } from "../src/commands/wipeCommand.js";
 beforeEach(t => {
   adminRoles.add("staff");
   t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
 });
 afterEach(() => adminRoles.delete("staff"));
 
@@ -117,7 +118,9 @@ for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe
       const f = fixture(name, { buttonError: failure });
       await assert.doesNotReject(execute(f.interaction));
       assert.equal(f.events.includes(operation), false);
-      assert.deepEqual(console.error.mock.calls.at(-1).arguments[1], { code: failure?.code ?? "unknown" });
+      const calls = console.error.mock.calls.map(call => call.arguments);
+      assert.deepEqual(calls, [[`Error during channel ${name}:`, { name: failure?.name ?? "unknown", code: failure?.code ?? "unknown" }]]);
+      assert.doesNotMatch(JSON.stringify({ errors: calls, warnings: console.warn.mock.calls.map(call => call.arguments) }), /synthetic-interaction-token|private synthetic preview|Synthetic Discord failure/);
     });
   }
 
@@ -125,6 +128,7 @@ for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe
     const f = fixture(name, { cancel: true });
     await execute(f.interaction);
     assert.ok(f.events.includes("cancel"));
+    if (name === "wipe") assert.match(f.edits.at(-1).embeds[0].toJSON().description, /Message purge was cancelled/);
     assert.equal(f.events.includes(operation), false);
     assert.equal(f.events.includes("fetch-member"), false);
   });

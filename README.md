@@ -271,7 +271,9 @@ role even if its ID is misconfigured. The old `PANEL_ADMIN_ROLE_ID` is unused.
 Resource sharing is public by default. **Public** shares require the invoking
 member to be able to post in that channel/thread. `private:true` remains available
 in read-only channels and only shows the resource to the caller. Sharing can
-optionally be restricted through `ALLOWED_COMMAND_ROLE_IDS`.
+optionally be restricted through `ALLOWED_COMMAND_ROLE_IDS`. Use specific roles;
+`@everyone` is not a valid allowlist match. Leave it unset to allow any member
+who can post.
 `reply_to` accepts a message ID or a `https://discord.com/channels/...` link **from
 the same server and channel**. A public message reply uses a private acknowledgement;
 it never silently redirects to another channel or falls back to an unrelated post.
@@ -375,6 +377,7 @@ policy. Membership and role definitions are fetched before toggling, and rapid
 same-member toggles are serialized in this one bot process. A failed confirmation
 notice does not imply the role update failed. No existing panel is reposted and
 no live role/category permissions are edited by these tests.
+
 
 ## Project structure
 
