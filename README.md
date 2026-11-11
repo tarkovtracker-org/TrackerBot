@@ -140,6 +140,7 @@ Copy `.env.example` to `.env` and fill in every value:
 - **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_ROLE_ID` (comma-separated Discord role IDs granting admin-only commands such as `/wipe`)
 - **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV=tarkovtracker-org/TarkovTracker` for both forms. Legacy `REPO_DATA_REPORT` is ignored.
 - **Channel IDs for automated posts:** `WELCOME_CHANNEL_ID`; optional `HONEYPOT_CHANNEL_ID` (a hidden channel — anyone who posts in it is banned on sight, with a kick fallback; messages older than 16h are swept hourly)
+- **Ticket destination:** optional `TICKET_CATEGORY_ID` selects the category for newly created private tickets, independently of the channel containing the ticket button. See [Ticket placement](#ticket-placement).
 - **Role IDs:** `PANEL_ADMIN_ROLE_ID`, `AUTO_ROLE_ID_1`–`AUTO_ROLE_ID_4` (auto-roles for new members); optional `ALLOWED_COMMAND_ROLE_IDS` (comma-separated role IDs allowed to use member commands, falls back to a built-in default)
 - **Web server:** `PORT`, `ALLOWED_ORIGINS` (comma-separated origins, exact match)
 
@@ -188,6 +189,38 @@ npm run start:web   # Public issue forms (http://localhost:3000)
 
 - Bot login success is logged as soon as Discord authenticates the token.
 - `webserver.js` serves `http://localhost:3000` (issue portal), plus `http://localhost:3000/issue` and `http://localhost:3000/data` (forms).
+
+## Ticket placement
+
+Set `TICKET_CATEGORY_ID` to a **category ID in the same server**, not the ID of the
+text channel containing the Create Ticket button. Enable Discord Developer Mode,
+right-click the desired category, and choose **Copy Channel ID**. Set the variable
+in the bot host's environment and restart/redeploy the bot. Category names and
+positions can then change without breaking ticket creation.
+
+Existing installations need no new variable: unset or whitespace-only values use
+the existing `🆘 --- Support ---` category (case-insensitive, ignoring surrounding
+whitespace). An explicit ID that is missing, belongs to another server, or points
+to a non-category channel fails closed; it never silently falls back elsewhere.
+Users are directed to staff instead of being told to create a category themselves.
+The bot fetches the server's current channels before routing and checking for an
+existing ticket in that category, rather than relying on an incomplete cache.
+
+For a minimal server, keep one public ticket-entry channel under **Support** and
+place private ticket channels in that same category; a separate Tickets category
+is not required. Ticket permission overwrites remain explicit: the requester,
+bot, and existing `Discord Admin` role receive access; `@everyone` is denied.
+Server administrators retain Discord's inherent access. The bot still needs its
+existing channel-management permissions; this change does not grant new access.
+Changing the destination only affects new tickets and duplicate checks there; it
+does not move, reopen, or delete existing tickets. Review outstanding tickets
+before changing destinations.
+
+Keep durable setup guides, FAQs, credits/team information and known-issue details
+on the website, linked from a short Discord entry message. Use Discord for
+conversation, public help, feedback and private sensitive support—not duplicate
+reference channels. This is organizational guidance only; the bot does not
+reorganize the server or alter existing category permissions.
 
 ## Slash commands
 
