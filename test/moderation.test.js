@@ -11,18 +11,29 @@ beforeEach(t => {
 });
 afterEach(() => adminRoles.delete("staff"));
 
-function fixture(command, { cancel = false, timeout = false, revoked = false, memberError = false, cloneError = false, deleteError = false } = {}) {
+function fixture(command, { cancel = false, timeout = false, revoked = false, memberError = false, cloneError = false, deleteError = false, bulkError = false } = {}) {
   const events = [];
   const edits = [];
   const notices = [];
   const roles = new Collection([["staff", { id: "staff" }]]);
+  let fetchedMessages = false;
   const channel = {
     id: "channel", type: ChannelType.GuildText, name: "general", topic: "topic",
     parentId: "parent", position: 3, nsfw: false, rateLimitPerUser: 5,
     permissionOverwrites: { cache: new Collection() },
     delete: async () => { events.push("delete"); if (deleteError) throw new Error("Missing permissions"); },
-    messages: { fetch: async () => { events.push("messages"); return new Collection(); } },
-    bulkDelete: async () => { events.push("bulkDelete"); return new Collection(); }
+    messages: { fetch: async () => {
+      events.push("messages");
+      if (fetchedMessages) return new Collection();
+      fetchedMessages = true;
+      return new Collection([["message", { id: "message" }]]);
+    } },
+    bulkDelete: async (messages, filterOld) => {
+      events.push("bulkDelete");
+      assert.equal(filterOld, true);
+      if (bulkError) throw new Error("Missing permissions");
+      return messages;
+    }
   };
   const button = {
     customId: `${cancel ? "cancel" : "confirm"}_${command}`,
@@ -60,6 +71,7 @@ function fixture(command, { cancel = false, timeout = false, revoked = false, me
       return undefined;
     },
     fetchReply: async () => {
+      assert.ok(events.includes("reply"), "a real confirmation must be sent before fetching it");
       events.push("fetch-reply");
       return { awaitMessageComponent: async options => {
         assert.equal(options.filter({ ...button, user: { id: "stranger" } }), false);
@@ -74,7 +86,7 @@ function fixture(command, { cancel = false, timeout = false, revoked = false, me
   return { interaction, events, edits, notices };
 }
 
-for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe", executeWipe, "messages"]]) {
+for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe", executeWipe, "bulkDelete"]]) {
   test(`${name}: confirmation uses a fetched Message, not reply's undefined return`, async () => {
     const f = fixture(name);
     await execute(f.interaction);
@@ -83,6 +95,7 @@ for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe
     assert.ok(f.events.indexOf("ack-button") < f.events.indexOf("fetch-member"));
     assert.ok(f.events.indexOf("fetch-member") < f.events.indexOf(operation));
     if (name === "nuke") assert.ok(f.events.indexOf("clone") < f.events.indexOf("delete"));
+    else assert.match(f.edits.at(-1).embeds[0].toJSON().description, /Deleted 1\b/);
   });
 
   test(`${name}: cancel does not mutate the channel`, async () => {
@@ -123,6 +136,14 @@ for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe
     assert.deepEqual(f.events, ["reply"]);
   });
 }
+
+test("wipe: bulk deletion failure reports failure and removes confirmation buttons", async () => {
+  const f = fixture("wipe", { bulkError: true });
+  await executeWipe(f.interaction);
+  assert.ok(f.events.includes("bulkDelete"));
+  assert.equal(f.edits.at(-1).embeds[0].toJSON().title, "Wipe Failed");
+  assert.deepEqual(f.edits.at(-1).components, []);
+});
 
 test("nuke: clone failure never deletes the original", async () => {
   const f = fixture("nuke", { cloneError: true });
