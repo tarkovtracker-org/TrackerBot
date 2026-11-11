@@ -204,8 +204,8 @@ async function handleTicketCreation(interaction) {
     await interaction.editReply({
       embeds: [
         createCardEmbed({
-          title: "Ticket failed",
-          description: "Failed to create ticket. Please try again later or contact staff.",
+          title: "Ticket status unconfirmed",
+          description: "Ticket creation could not be confirmed. A private channel may already exist. Check Support and contact staff before retrying.",
           color: colors.error
         })
       ]

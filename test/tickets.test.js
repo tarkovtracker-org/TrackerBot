@@ -163,7 +163,8 @@ test("channel-creation failure edits the private deferred response", async t => 
   t.mock.method(console, "error", () => {});
   const f = await run(fixture([support], { createError: new Error("Missing permissions") }));
   assert.deepEqual(console.error.mock.calls.map(call => call.arguments), [["Error creating ticket:", { name: "Error", code: "unknown" }]]);
-  assert.equal(title(f), "Ticket failed");
+  assert.equal(title(f), "Ticket status unconfirmed");
+  assert.match(f.replies[0].embeds[0].toJSON().description, /could not be confirmed/);
   assert.equal(f.sent.length, 0);
   assert.match(f.replies[0].embeds[0].toJSON().description, /contact staff/i);
   assert.deepEqual(f.events, ["defer", "fetch", "create", "edit"]);
@@ -205,9 +206,14 @@ test("opening-message failure does not pretend the created ticket failed", async
 
 test("explicit ticket staff role IDs survive renames with least-privilege access", async () => {
   const f = fixture();
-  f.interaction.guild.roles.cache.set("support-staff", { id: "support-staff", name: "Renamed support" });
+  let roleFetches = 0;
+  const fetchedRoles = new Collection([["support-staff", { id: "support-staff", name: "Renamed support" }]]);
+  f.interaction.guild.roles.fetch = async () => { roleFetches++; return fetchedRoles; };
+  assert.equal(f.interaction.guild.roles.cache.has("support-staff"), false);
   process.env.TICKET_STAFF_ROLE_IDS = " support-staff, support-staff ";
   await run(f);
+  assert.equal(roleFetches, 1);
+  assert.equal(f.created.length, 1);
   const staff = f.created[0].permissionOverwrites.slice(3);
   assert.deepEqual(staff, [{
     id: "support-staff",

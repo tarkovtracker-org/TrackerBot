@@ -124,6 +124,22 @@ test("malformed staff configuration still protects its known staff IDs from self
   assert.equal(title(f), "Role unavailable");
 });
 
+test("legacy Discord Admin names cannot be self-assigned through an explicit notification ID", async () => {
+  const f = fixture({ name: " Discord Admin " });
+  process.env.REACTION_ROLE_SITE_ID = f.role.id;
+  await run(f);
+  assert.equal(f.changes.length, 0);
+  assert.equal(title(f), "Role unavailable");
+});
+
+test("unknown future notification permission bits fail closed", async () => {
+  const unknown = 1n << 60n;
+  assert.equal(Object.values(PermissionFlagsBits).includes(unknown), false);
+  const f = await run(fixture({ permissions: [unknown] }));
+  assert.equal(f.changes.length, 0);
+  assert.equal(title(f), "Role unavailable");
+});
+
 test("@everyone cannot be used as a notification role", async () => {
   const f = fixture();
   f.role.id = "guild"; f.role.name = "@everyone";
