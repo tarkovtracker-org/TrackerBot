@@ -30,16 +30,25 @@ test("security overrides are exact pins and installed at the requested version",
   }
 });
 
+function assertPinnedActions(source, name) {
+  const uses = [...source.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)];
+  assert.ok(uses.length, `no action declarations found in ${name}`);
+  for (const [, action] of uses) {
+    assert.match(action, /^[\w.-]+\/[\w./-]+@[a-f0-9]{40}$/, `${name}: pin ${action} to a full SHA`);
+  }
+}
+
+test("action pin checks include shorthand even when a pinned named step exists", () => {
+  const pinned = "actions/checkout@" + "a".repeat(40);
+  assert.throws(() => assertPinnedActions(`steps:\n  - name: Pinned\n    uses: ${pinned}\n  - uses: actions/checkout@v7\n`, "mixed.yml"), /pin actions\/checkout@v7/);
+  assert.doesNotThrow(() => assertPinnedActions(`steps:\n  - uses: ${pinned}\n`, "shorthand.yml"));
+});
+
 test("every checked-in external workflow action uses a full commit SHA", async () => {
   const directory = new URL(".github/workflows/", root);
   const workflows = (await readdir(directory)).filter(name => /\.ya?ml$/.test(name));
   assert.ok(workflows.length, "must inspect actual workflows");
   for (const name of workflows) {
-    const source = await readFile(new URL(name, directory), "utf8");
-    const uses = [...source.matchAll(/^\s+uses:\s*(\S+)/gm)];
-    assert.ok(uses.length, `no action declarations found in ${name}`);
-    for (const [, action] of uses) {
-      assert.match(action, /^[\w.-]+\/[\w./-]+@[a-f0-9]{40}$/, `${name}: pin ${action} to a full SHA`);
-    }
+    assertPinnedActions(await readFile(new URL(name, directory), "utf8"), name);
   }
 });
