@@ -120,8 +120,10 @@ test("resource URLs obey Discord's 512-character link-button limit", () => {
 test("message references accept IDs and same-channel links, rejecting other channels/guilds and malformed URLs", () => {
   const context = { guildId, channelId };
   assert.equal(messageReference(messageId, context), messageId);
-  assert.equal(messageReference(`https://discord.com/channels/${guildId}/${channelId}/${messageId}`, context), messageId);
-  for (const input of ["bad-id", `https://discord.com/channels/${guildId}/${messageId}/${messageId}`, `https://discord.com/channels/${messageId}/${channelId}/${messageId}`, `https://evil.example/channels/${guildId}/${channelId}/${messageId}`]) {
+  for (const host of ["discord.com", "www.discord.com", "ptb.discord.com", "canary.discord.com", "discordapp.com", "ptb.discordapp.com", "canary.discordapp.com"]) {
+    assert.equal(messageReference(`https://${host}/channels/${guildId}/${channelId}/${messageId}`, context), messageId);
+  }
+  for (const input of ["bad-id", `https://discord.com/channels/${guildId}/${messageId}/${messageId}`, `https://discord.com/channels/${messageId}/${channelId}/${messageId}`, `https://evil.example/channels/${guildId}/${channelId}/${messageId}`, `https://discord.com.evil.example/channels/${guildId}/${channelId}/${messageId}`, `https://evil.discord.com/channels/${guildId}/${channelId}/${messageId}`]) {
     assert.throws(() => messageReference(input, context));
   }
 });

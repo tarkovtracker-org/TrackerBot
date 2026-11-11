@@ -4,7 +4,7 @@ export function messageReference(value, interaction) {
   if (!value?.trim()) return undefined;
   const input = value.trim();
   if (/^\d{17,20}$/.test(input)) return input;
-  const match = /^https:\/\/(?:www\.)?discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})\/?$/.exec(input);
+  const match = /^https:\/\/(?:(?:www|ptb|canary)\.)?discord(?:app)?\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})\/?$/.exec(input);
   if (match && match[1] === interaction.guildId && match[2] === interaction.channelId) return match[3];
   throw new Error("Use a message ID or a Discord message link from this channel.");
 }

@@ -167,6 +167,7 @@ test("nuke refreshes source flags after confirmation before creating or deleting
     return f.interaction.channel;
   };
   await executeNuke(f.interaction);
+  assert.match(f.edits.at(-1).content, /cannot be cloned safely/);
   assert.equal(f.events.includes("clone"), false);
   assert.equal(f.events.includes("delete"), false);
 });
