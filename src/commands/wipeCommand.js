@@ -99,7 +99,7 @@ export async function executeWipe(interaction) {
         embeds: [
           createCardEmbed({
             title: "Purge Cancelled",
-            description: "Channel wipe was cancelled.",
+            description: "Message purge was cancelled.",
             color: colors.info
           })
         ],
@@ -169,7 +169,7 @@ export async function executeWipe(interaction) {
       return;
     }
 
-    console.error("Error during channel wipe:", { code: err?.code ?? "unknown" });
+    console.error("Error during channel wipe:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
     await interaction.editReply({
       embeds: [
         createCardEmbed({

@@ -19,7 +19,9 @@ export async function executeResource(interaction) {
   }
   if (!["url", "resources"].includes(action)) throw new Error("Unknown resource action");
   if (allowedCommandRoles.size && !hasAdminRole(interaction.member.roles.cache) &&
-      !interaction.member.roles.cache.some(role => allowedCommandRoles.has(role.id))) {
+      !interaction.member.roles.cache.some(role =>
+        role.id !== interaction.guildId && role.name !== "@everyone" && allowedCommandRoles.has(role.id)
+      )) {
     await interaction.reply({ content: "Your role cannot share resources with this bot.", flags: MessageFlags.Ephemeral });
     return;
   }

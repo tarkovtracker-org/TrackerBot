@@ -128,6 +128,16 @@ test("message references accept IDs and same-channel links, rejecting other chan
   }
 });
 
+test("resource allowlists reject @everyone rather than matching every member", async () => {
+  allowedCommandRoles.add(guildId);
+  const f = fixture("tt", { action: "url" }, { admin: false });
+  f.interaction.member.roles.cache.set(guildId, { id: guildId, name: "@everyone", guild: { id: guildId } });
+  await run(f);
+  assert.match(f.replies[0].content, /cannot share resources/);
+  assert.equal(f.replies[0].flags, MessageFlags.Ephemeral);
+  assert.equal(f.sent.length, 0);
+});
+
 for (const action of ["url", "resources"]) {
   test(`/tt ${action} shares a professional link without requiring an admin role`, async () => {
     const f = await run(fixture("tt", { action }, { admin: false }));
