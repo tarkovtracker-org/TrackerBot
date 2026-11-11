@@ -153,6 +153,18 @@ test("nuke: clone failure never deletes the original", async () => {
   assert.match(f.edits.at(-1).embeds[0].toJSON().description, /original channel is untouched/);
 });
 
+for (const slowmode of [0, 42]) {
+  test(`nuke preserves the default thread slowmode (${slowmode})`, async () => {
+    const f = fixture("nuke");
+    f.interaction.channel.defaultThreadRateLimitPerUser = slowmode;
+    const create = f.interaction.guild.channels.create;
+    let options;
+    f.interaction.guild.channels.create = async input => { options = input; return create(input); };
+    await executeNuke(f.interaction);
+    assert.equal(options.defaultThreadRateLimitPerUser, slowmode);
+  });
+}
+
 test("nuke: deletion failure reports partial completion in the clone", async () => {
   const f = fixture("nuke", { deleteError: true });
   await executeNuke(f.interaction);

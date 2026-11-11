@@ -113,10 +113,10 @@ Requires **Node.js 18.17+**.
 ## Features
 
 - Ticket creation flow with private support channels
-- Reaction-role assignment and a `put-member-role` bulk role command
-- Automated welcome messages and auto-roles for new members
-- Quick announcement helpers (`/message`, `/faq1`, `/utd`)
-- One-command channel archiving (`/archive`)
+- Reaction-role assignment, welcome messages and auto-roles for new members
+- Website-first sharing (`/tt url`, `/tt resources`) and private command help
+- Previewed bot announcements/replies (`/message`), without accidental mention pings
+- Confirmed bounded purges, private audit archives, and channel resets
 - Honeypot anti-spam channel that auto-bans anyone who posts in it
 - Public web forms that open GitHub issues for bug and data reports
 
@@ -137,11 +137,11 @@ the tests, and `npm run audit:prod`; production dependency advisories fail CI.
 
 Copy `.env.example` to `.env` and fill in every value:
 
-- **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_ROLE_ID` (comma-separated Discord role IDs granting admin-only commands such as `/wipe`)
+- **Discord bot basics:** `DISCORD_TOKEN`, `ADMIN_ROLE_ID` (comma-separated Discord role IDs granting `/message`, `/channel` and `/nuke`)
 - **GitHub issue routing:** `GITHUB_TOKEN`, `REPO_DEV=tarkovtracker-org/TarkovTracker` for both forms. Legacy `REPO_DATA_REPORT` is ignored.
 - **Channel IDs for automated posts:** `WELCOME_CHANNEL_ID`; optional `HONEYPOT_CHANNEL_ID` (a hidden channel — anyone who posts in it is banned on sight, with a kick fallback; messages older than 16h are swept hourly)
 - **Ticket destination:** optional `TICKET_CATEGORY_ID` selects the category for newly created private tickets, independently of the channel containing the ticket button. See [Ticket placement](#ticket-placement).
-- **Role IDs:** `PANEL_ADMIN_ROLE_ID`, `AUTO_ROLE_ID_1`–`AUTO_ROLE_ID_4` (auto-roles for new members); optional `ALLOWED_COMMAND_ROLE_IDS` (comma-separated role IDs allowed to use member commands, falls back to a built-in default)
+- **Role IDs:** `AUTO_ROLE_ID_1`–`AUTO_ROLE_ID_4` (auto-roles for new members); optional `ALLOWED_COMMAND_ROLE_IDS` restricts resource sharing only (unset/blank allows members who can post); `PANEL_ADMIN_ROLE_ID` is retired and ignored
 - **Web server:** `PORT`, `ALLOWED_ORIGINS` (comma-separated origins, exact match)
 
 > The deployed `GITHUB_TOKEN` needs issue-write access to `tarkovtracker-org/TarkovTracker`. Prefer a fine-grained PAT with **Issues: write** on that repository only. Redirecting data reports removes the private-overlay dependency, but does not grant permissions to a token that cannot create website issues.
@@ -226,13 +226,88 @@ reorganize the server or alter existing category permissions.
 
 | Command | Description |
 | --- | --- |
-| `/message` | Send a message as the bot (Discord Admin only). |
-| `/faq1` | Post the FAQ notice about site stability. |
-| `/utd` | Post the update-in-progress notice. |
-| `/archive` | Archive the current channel and move it to the Archive category. |
-| `/put-member-role` | Add the member auto-role to everyone missing it (Admin only). |
-| `/wipe` | Confirmed bulk-delete of recent messages in the current channel (Admin only, 14-day Discord API limit). |
-| `/nuke` | Clone the current channel with all permissions/settings and delete the old one (Admin only, confirm with warning). |
+| `/tt url [private] [reply_to]` | Share the website with a clean embed and link button. |
+| `/tt resources [private] [reply_to]` | Share maintained website guides and community tools. |
+| `/tt help` | Private command guide, available to every member. |
+| `/message content [title] [reply_to] [preview]` | Admin-only announcement/reply; defaults to a private Send/Cancel preview. Optional title sends a styled embed; otherwise plain text. |
+| `/channel purge count` | Confirm deletion of **up to 1–1000** recent messages, not an unbounded channel wipe. Discord skips messages over 14 days old. |
+| `/channel archive` | Confirm staff-only text-channel archiving for audit, retaining history. |
+| `/nuke` | Confirm a text-channel reset: clone settings/overwrites, then permanently delete the original and its history. IDs change; linked features may break. |
+
+### Command access and safe sharing
+
+All commands explicitly use **guild installation and guild context**, not the
+legacy/deprecated DM toggle. Administrative commands default to Discord
+administrators only in the command picker. If your configured `ADMIN_ROLE_ID`
+roles do not have Discord Administrator, grant them access in **Server Settings →
+Integrations → TrackerBot → Commands**. Runtime checks still require a configured
+admin role even when a Discord UI override grants visibility. Administrative
+commands no longer require an unrelated hardcoded member role as well, and role
+names never authorize these commands. The old `PANEL_ADMIN_ROLE_ID` is unused.
+
+Resource sharing is public by default, requires the invoking member to be able to
+post in that channel/thread, and can optionally be restricted through
+`ALLOWED_COMMAND_ROLE_IDS`. `private:true` only shows the resource to the caller.
+`reply_to` accepts a message ID or a `https://discord.com/channels/...` link **from
+the same server and channel**. A public message reply uses a private acknowledgement;
+it never silently redirects to another channel or falls back to an unrelated post.
+Private sharing cannot also target a public message. Replies and announcements
+suppress all mention notifications, including the replied-to author.
+
+`/message` previews expire after one minute; Cancel/expiry sends nothing. Use
+`preview:false` explicitly to skip the preview. Admin authority is refreshed before
+sending and again after a preview confirmation. Delivery errors never claim success;
+check the channel before repeating an unconfirmed send. For example:
+
+```text
+/tt url
+/tt resources
+/tt resources reply_to:<paste a message link>
+/message content:Please check the resources page. title:Helpful resources
+/channel purge count:25
+```
+
+Optional HTTPS link overrides: `TT_SITE_URL` defaults to
+`https://tarkovtracker.org/`; `TT_RESOURCES_URL` defaults to `/resources` on the
+configured site's origin. Blank values keep defaults. Invalid URLs, non-HTTPS
+schemes and embedded credentials fail closed rather than publishing unsafe links.
+No FAQ/status content is copied from the website into the bot.
+
+### Private audit archives
+
+Set optional `ARCHIVE_CATEGORY_ID` to a category in the same guild. Unset/blank
+uses the existing **Archive** category (case-insensitive, trimmed); invalid
+explicit IDs never fall back. `/channel archive` is deliberately **not a delete**:
+it confirms the action and atomically moves the text channel while replacing
+its overwrites with `@everyone` denied View Channel and only the configured admin
+roles and bot allowed access. Discord administrators inherently retain access.
+It never inherits a possibly public category's grants. Reviewers can inspect the
+history before separately deciding to delete it. Threads are not individually
+modified; existing thread memberships are not revoked.
+
+The confirmation explicitly warns that previous overwrites are not stored for
+automatic restoration. Restore permissions manually from Discord audit logs if
+needed; this is not a reversible backup tool. One in-flight moderation action per
+channel is allowed in this bot process, including its confirmation. Multi-worker
+hosting requires a shared lock. Missing roles/categories, revoked authority,
+failed refreshes or API errors do not grant new access or trigger a fallback move.
+
+### Migration from the old catalog
+
+On the next deployed bot startup, the existing global bulk-registration replaces
+the old catalog. `/faq1` and `/utd` are removed: hardcoded stability/patch notices
+age poorly and belong on the website. `/put-member-role` is removed: it was a
+one-off mass mutation, not routine support; join auto-roles remain unchanged.
+`/wipe` becomes bounded `/channel purge count`, and `/archive` becomes explicit
+`/channel archive`. `/nuke` and `/message` remain recognizable. Stale invocations
+receive a private pointer to `/tt help` and never run the removed actions.
+
+This source change does not execute command registration, change production
+settings, move channels or send live announcements during tests. Deploy/restart
+when approved, review Integrations permissions, then perform non-destructive
+smoke tests first. Official API references:
+[application commands](https://docs.discord.com/developers/interactions/application-commands),
+[interaction replies](https://discord.js.org/docs/packages/discord.js/14.26.4/ChatInputCommandInteraction:Class).
 
 ## Project structure
 

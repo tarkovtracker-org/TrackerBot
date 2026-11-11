@@ -1,15 +1,13 @@
-// Command roles can be overridden via ALLOWED_COMMAND_ROLE_IDS (comma-separated).
-// Falls back to the default role ID below when the env var is not set.
-const DEFAULT_COMMAND_ROLE_IDS = ["1433391726051197020"];
-
+// Optional resource-sharing allowlist. Empty means any member who can post;
+// it is independent of administrative authorization (ADMIN_ROLE_ID).
 export const allowedCommandRoles = new Set(
-  (process.env.ALLOWED_COMMAND_ROLE_IDS || DEFAULT_COMMAND_ROLE_IDS.join(","))
+  (process.env.ALLOWED_COMMAND_ROLE_IDS || "")
     .split(",")
     .map(id => id.trim())
     .filter(Boolean)
 );
 
-// Admin-only commands (e.g. /wipe) require one of these roles.
+// Administrative commands require one of these roles; never match by role name.
 // Configurable via ADMIN_ROLE_ID (comma-separated Discord role IDs).
 export const adminRoles = new Set(
   (process.env.ADMIN_ROLE_ID || "")

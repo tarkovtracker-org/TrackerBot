@@ -156,6 +156,9 @@ export async function executeNuke(interaction) {
     if (oldChannel.defaultAutoArchiveDuration) {
       cloneOptions.defaultAutoArchiveDuration = oldChannel.defaultAutoArchiveDuration;
     }
+    if (oldChannel.defaultThreadRateLimitPerUser != null) {
+      cloneOptions.defaultThreadRateLimitPerUser = oldChannel.defaultThreadRateLimitPerUser;
+    }
 
     let clonedChannel;
     try {
