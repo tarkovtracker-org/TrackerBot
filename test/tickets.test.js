@@ -1,9 +1,10 @@
-import { test, afterEach } from "node:test";
+import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ChannelType, Collection, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { handleButtonInteraction } from "../src/interactions/buttonHandlers.js";
 
 const originalCategoryId = process.env.TICKET_CATEGORY_ID;
+beforeEach(t => t.mock.method(console, "warn", () => {}));
 afterEach(() => {
   if (originalCategoryId === undefined) delete process.env.TICKET_CATEGORY_ID;
   else process.env.TICKET_CATEGORY_ID = originalCategoryId;
@@ -12,13 +13,13 @@ afterEach(() => {
 const support = { id: "1536562632289689673", type: ChannelType.GuildCategory, name: "🆘 --- Support ---" };
 const category = (overrides = {}) => ({ ...support, ...overrides });
 
-function fixture(channels = [support], { fetchError, createError } = {}) {
+function fixture(channels = [support], { fetchError, createError, deferError } = {}) {
   delete process.env.TICKET_CATEGORY_ID;
   const events = [];
   const created = [];
   const replies = [];
   const sent = [];
-  const fetched = new Collection(channels.map(channel => [channel.id, channel]));
+  const fetched = new Collection(channels.map(channel => [channel?.id ?? "unknown-id", channel]));
   const interaction = {
     customId: "create_ticket",
     isButton: () => true,
@@ -45,6 +46,7 @@ function fixture(channels = [support], { fetchError, createError } = {}) {
     },
     deferReply: async options => {
       events.push("defer");
+      if (deferError) throw deferError;
       assert.deepEqual(options, { flags: MessageFlags.Ephemeral });
     },
     editReply: async options => {
@@ -108,6 +110,8 @@ for (const configuredId of ["missing-id", "not-a-snowflake", "text-id"]) {
     process.env.TICKET_CATEGORY_ID = configuredId;
     await run(f);
     assert.equal(title(f), "Ticket support unavailable");
+    assert.equal(console.warn.mock.calls.length, 1, "operators need a routing diagnostic");
+    assert.equal(console.warn.mock.calls[0].arguments[1].categoryId, configuredId);
     assert.equal(f.created.length, 0);
     assert.doesNotMatch(f.replies[0].embeds[0].toJSON().description, /create a category/i);
   });
@@ -149,7 +153,19 @@ test("channel-creation failure edits the private deferred response", async t => 
   const f = await run(fixture([support], { createError: new Error("Missing permissions") }));
   assert.equal(title(f), "Ticket failed");
   assert.equal(f.sent.length, 0);
+  assert.match(f.replies[0].embeds[0].toJSON().description, /contact staff/i);
   assert.deepEqual(f.events, ["defer", "fetch", "create", "edit"]);
+});
+
+test("unresolved channels in the fetched collection do not break ticket creation", async () => {
+  const f = await run(fixture([null, support]));
+  assert.equal(title(f), "Ticket ready");
+});
+
+test("expired initial acknowledgement stops without API work or a second reply", async () => {
+  const f = await run(fixture([support], { deferError: new Error("Unknown interaction") }));
+  assert.deepEqual(f.events, ["defer"]);
+  assert.equal(console.warn.mock.calls.length, 1);
 });
 
 test("unrelated buttons remain unhandled", async () => {

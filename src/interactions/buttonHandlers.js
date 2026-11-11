@@ -29,7 +29,12 @@ async function handleTicketCreation(interaction) {
   const member = interaction.member;
 
   // Acknowledge before fetching channels or creating a ticket (Discord allows 3 seconds).
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  } catch (err) {
+    console.warn("Unable to acknowledge ticket interaction:", err);
+    return;
+  }
 
   let channels;
   try {
@@ -58,6 +63,10 @@ async function handleTicketCreation(interaction) {
 
   // An explicit but invalid destination must not silently route private tickets elsewhere.
   if (ticketCategory?.type !== ChannelType.GuildCategory) {
+    console.warn("Ticket category unavailable", {
+      categoryId: categoryId || "legacy Support category",
+      channelType: ticketCategory?.type ?? null
+    });
     await interaction.editReply({
       embeds: [
         createCardEmbed({
@@ -71,7 +80,7 @@ async function handleTicketCreation(interaction) {
   }
 
   const existingTicket = channels.find(
-    c => c.parentId === ticketCategory.id && c.topic === `Ticket for ${member.id}`
+    c => c?.parentId === ticketCategory.id && c.topic === `Ticket for ${member.id}`
   );
 
   if (existingTicket) {
@@ -165,7 +174,7 @@ async function handleTicketCreation(interaction) {
       embeds: [
         createCardEmbed({
           title: "Ticket failed",
-          description: "Failed to create ticket. Check bot permissions.",
+          description: "Failed to create ticket. Please try again later or contact staff.",
           color: colors.error
         })
       ]
