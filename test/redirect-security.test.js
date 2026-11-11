@@ -11,6 +11,7 @@ const followRedirects = axiosRequire("follow-redirects");
 
 async function redirectedHeaders(t, headers, sensitiveHeaders = []) {
   let received;
+  let initial;
   const target = http.createServer((req, res) => {
     received = req.headers;
     res.end("ok");
@@ -18,6 +19,7 @@ async function redirectedHeaders(t, headers, sensitiveHeaders = []) {
   target.listen(0, "127.0.0.1");
   await once(target, "listening");
   const origin = http.createServer((req, res) => {
+    initial = req.headers;
     req.resume();
     res.writeHead(302, { Location: `http://127.0.0.1:${target.address().port}/` });
     res.end();
@@ -45,11 +47,12 @@ async function redirectedHeaders(t, headers, sensitiveHeaders = []) {
     request.on("error", reject);
   });
   assert.ok(received, "the redirected target must receive a request");
-  return received;
+  assert.ok(initial, "the origin must receive the initial request");
+  return { initial, redirected: received };
 }
 
 test("redirects strip array-form credentials across origins", { timeout: 5000 }, async t => {
-  const headers = await redirectedHeaders(t, ["Authorization", "test-marker", "Cookie", "test-cookie", "Proxy-Authorization", "test-proxy"]);
+  const { redirected: headers } = await redirectedHeaders(t, ["Authorization", "test-marker", "Cookie", "test-cookie", "Proxy-Authorization", "test-proxy"]);
   for (const name of ["authorization", "cookie", "proxy-authorization"]) {
     assert.equal(headers[name], undefined, `${name} must not cross origins`);
   }
@@ -63,14 +66,15 @@ for (const headers of [
     const sensitiveHeaders = runInNewContext('["X-Api-Key"]');
     assert.equal(Array.isArray(sensitiveHeaders), true);
     assert.equal(sensitiveHeaders instanceof Array, false);
-    const received = await redirectedHeaders(t, headers, sensitiveHeaders);
-    assert.equal(received["x-api-key"], undefined, "custom credentials must not cross origins");
-    assert.equal(received["x-control"], "preserved");
+    const { initial, redirected } = await redirectedHeaders(t, headers, sensitiveHeaders);
+    assert.equal(initial["x-api-key"], "test-marker", "the credential must reach the intended origin");
+    assert.equal(redirected["x-api-key"], undefined, "custom credentials must not cross origins");
+    assert.equal(redirected["x-control"], "preserved");
   });
 }
 
 test("redirects strip sensitive header names containing regex metacharacters", { timeout: 5000 }, async t => {
-  const headers = await redirectedHeaders(t, {
+  const { redirected: headers } = await redirectedHeaders(t, {
     "X-Api^Key": "test-marker", "X-Token|Secret": "test-marker", "X-Control": "preserved"
   }, ["X-Api^Key", "X-Token|Secret"]);
   assert.equal(headers["x-api^key"], undefined);
