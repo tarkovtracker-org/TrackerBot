@@ -30,7 +30,7 @@ export async function executeArchive(interaction) {
     const preview = await interaction.editReply({
       embeds: [createCardEmbed({
         title: "Archive for staff review?",
-        description: "This will move the channel and **replace its permission overwrites** so only configured admin roles and the bot can view it. Discord administrators always retain access.\n\nHistory is kept; nothing is deleted. Existing private thread memberships are not revoked. Previous overwrites are not stored for automatic restoration. Review Discord audit logs before any manual restore."
+        description: "This will move the channel and **replace its permission overwrites** so only configured admin roles and the bot can view it. Discord administrators always retain access.\n\nHistory is kept; nothing is deleted. Existing private thread memberships are not revoked. Record original permissions before archiving if you may need to restore them. The bot does not save previous overwrites. Audit logs are only a limited aid, not a permission backup."
       })],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(confirmId).setLabel("Archive privately").setStyle(ButtonStyle.Danger),

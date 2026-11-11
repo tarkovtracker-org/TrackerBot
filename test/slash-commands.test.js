@@ -222,6 +222,7 @@ test("/message denies non-admins and does not claim success when delivery errors
 
 test("archive atomically hides the channel from previous users/roles while preserving history", async () => {
   const f = await run(fixture("channel", { action: "archive" }));
+  assert.match(f.edits[0].embeds[0].toJSON().description, /Record original permissions before archiving/);
   assert.equal(f.channelEdits.length, 1);
   const edit = f.channelEdits[0];
   assert.equal(edit.parent, categoryId);
