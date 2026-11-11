@@ -11,6 +11,11 @@ ensureEnvVars();
 
 const client = createClient();
 
+client.on(Events.Error, err => {
+  // Discord errors can contain request payloads; log only the diagnostic code.
+  console.error("Discord client error", { code: err?.code ?? "unknown" });
+});
+
 client.once(Events.ClientReady, async () => {
   console.log(`Bot logged in as ${client.user.tag}`);
 
@@ -26,4 +31,14 @@ registerInteractionHandler(client);
 registerMemberHandlers(client);
 setupHoneypot(client);
 
-client.login(process.env.DISCORD_TOKEN);
+try {
+  await client.login(process.env.DISCORD_TOKEN);
+} catch (err) {
+  console.error("Bot login failed", { code: err?.code ?? "unknown" });
+  try {
+    await client.destroy();
+  } catch (cleanupError) {
+    console.warn("Bot cleanup failed", { code: cleanupError?.code ?? "unknown" });
+  }
+  process.exitCode = 1;
+}
