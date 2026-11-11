@@ -30,8 +30,12 @@ test("security overrides are exact pins and installed at the requested version",
   }
 });
 
+/** Assert that block-style action declarations, including shorthand steps, use exact SHAs.
+ * @param {string} source Workflow YAML source.
+ * @param {string} name Workflow name used in failure diagnostics.
+ */
 function assertPinnedActions(source, name) {
-  const uses = [...source.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)];
+  const uses = [...source.matchAll(/^\s*(?:-\s*)?uses[ \t]*:\s*(\S+)/gm)];
   assert.ok(uses.length, `no action declarations found in ${name}`);
   for (const [, action] of uses) {
     assert.match(action, /^[\w.-]+\/[\w./-]+@[a-f0-9]{40}$/, `${name}: pin ${action} to a full SHA`);
@@ -42,6 +46,8 @@ test("action pin checks include shorthand even when a pinned named step exists",
   const pinned = "actions/checkout@" + "a".repeat(40);
   assert.throws(() => assertPinnedActions(`steps:\n  - name: Pinned\n    uses: ${pinned}\n  - uses: actions/checkout@v7\n`, "mixed.yml"), /pin actions\/checkout@v7/);
   assert.doesNotThrow(() => assertPinnedActions(`steps:\n  - uses: ${pinned}\n`, "shorthand.yml"));
+  assert.throws(() => assertPinnedActions(`steps:\n  - name: Pinned\n    uses: ${pinned}\n  - uses : actions/checkout@v7\n`, "spaced.yml"), /pin actions\/checkout@v7/);
+  assert.doesNotThrow(() => assertPinnedActions(`steps:\n  - uses \t: ${pinned}\n`, "spaced-pinned.yml"));
 });
 
 test("every checked-in external workflow action uses a full commit SHA", async () => {
