@@ -28,38 +28,61 @@ async function handleTicketCreation(interaction) {
   const guild = interaction.guild;
   const member = interaction.member;
 
-  const ticketCategory = guild.channels.cache.find(
-    c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === "🆘 --- Support ---"
-  );
+  // Acknowledge before fetching channels or creating a ticket (Discord allows 3 seconds).
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  if (!ticketCategory) {
-    await interaction.reply({
+  let channels;
+  try {
+    channels = await guild.channels.fetch();
+  } catch (err) {
+    console.error("Error fetching ticket channels:", err);
+    await interaction.editReply({
       embeds: [
         createCardEmbed({
-          title: "Missing ticket category",
-          description: "Ticket category does not exist. Please create a category named **ticket**.",
+          title: "Ticket failed",
+          description: "Unable to load support channels. Please try again later or contact staff.",
           color: colors.error
         })
-      ],
-      flags: MessageFlags.Ephemeral
+      ]
     });
     return;
   }
 
-  const existingTicket = guild.channels.cache.find(
+  const categoryId = process.env.TICKET_CATEGORY_ID?.trim();
+  const ticketCategory = categoryId
+    ? channels.get(categoryId)
+    : channels.find(c =>
+      c?.type === ChannelType.GuildCategory &&
+      c.name.trim().toLowerCase() === "🆘 --- support ---"
+    );
+
+  // An explicit but invalid destination must not silently route private tickets elsewhere.
+  if (ticketCategory?.type !== ChannelType.GuildCategory) {
+    await interaction.editReply({
+      embeds: [
+        createCardEmbed({
+          title: "Ticket support unavailable",
+          description: "Staff need to configure the ticket category. Please contact a server administrator.",
+          color: colors.error
+        })
+      ]
+    });
+    return;
+  }
+
+  const existingTicket = channels.find(
     c => c.parentId === ticketCategory.id && c.topic === `Ticket for ${member.id}`
   );
 
   if (existingTicket) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         createCardEmbed({
           title: "Ticket already open",
           description: `You already have a ticket: ${existingTicket}.`,
           color: colors.info
         })
-      ],
-      flags: MessageFlags.Ephemeral
+      ]
     });
     return;
   }
@@ -127,27 +150,25 @@ async function handleTicketCreation(interaction) {
       }
     );
 
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         createCardEmbed({
           title: "Ticket ready",
           description: `Your ticket has been created: ${ticketChannel}.`,
           color: colors.success
         })
-      ],
-      flags: MessageFlags.Ephemeral
+      ]
     });
   } catch (err) {
     console.error("Error creating ticket:", err);
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         createCardEmbed({
           title: "Ticket failed",
           description: "Failed to create ticket. Check bot permissions.",
           color: colors.error
         })
-      ],
-      flags: MessageFlags.Ephemeral
+      ]
     });
   }
 }
