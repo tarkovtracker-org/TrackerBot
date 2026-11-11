@@ -297,12 +297,15 @@ It never inherits a possibly public category's grants. Reviewers can inspect the
 history before separately deciding to delete it. Threads are not individually
 modified; existing thread memberships are not revoked.
 
-The confirmation explicitly warns that previous overwrites are not stored for
-automatic restoration. Restore permissions manually from Discord audit logs if
-needed; this is not a reversible backup tool. One in-flight moderation action per
-channel is allowed in this bot process, including its confirmation. Multi-worker
-hosting requires a shared lock. Missing roles/categories, revoked authority,
-failed refreshes or API errors do not grant new access or trigger a fallback move.
+Record original permissions **before archiving** if restoration may be needed.
+The confirmation warns that the bot does not save previous overwrites. Discord
+audit logs are only a limited aid, not a reliable permission backup or restoration
+method. One in-flight moderation action per channel is allowed in this bot
+process, including its confirmation. Multi-worker hosting requires a shared lock.
+Missing roles/categories, revoked authority and failed preflight refreshes do not
+trigger a fallback move. Treat an archive API error as an **unconfirmed outcome**:
+the channel edit may have applied even if its response was lost. Inspect the
+channel and its permission overwrites before retrying.
 
 ### Migration from the old catalog
 
