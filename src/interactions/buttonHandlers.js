@@ -50,7 +50,7 @@ async function handleTicketCreation(interaction) {
   try {
     channels = await guild.channels.fetch();
   } catch (err) {
-    console.error("Error fetching ticket channels:", err);
+    console.error("Error fetching ticket channels:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
     await interaction.editReply({
       embeds: [
         createCardEmbed({
@@ -200,7 +200,7 @@ async function handleTicketCreation(interaction) {
       console.warn("Ticket created but confirmation notice failed", { code: err?.code ?? "unknown" });
     });
   } catch (err) {
-    console.error("Error creating ticket:", err);
+    console.error("Error creating ticket:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
     await interaction.editReply({
       embeds: [
         createCardEmbed({

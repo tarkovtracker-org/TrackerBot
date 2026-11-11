@@ -153,6 +153,7 @@ test("existing tickets from the fetched destination prevent another creation", a
 test("channel-fetch failure does not create a ticket or claim the category is missing", async t => {
   t.mock.method(console, "error", () => {});
   const f = await run(fixture([], { fetchError: new Error("Discord unavailable") }));
+  assert.deepEqual(console.error.mock.calls.map(call => call.arguments), [["Error fetching ticket channels:", { name: "Error", code: "unknown" }]]);
   assert.equal(title(f), "Ticket failed");
   assert.equal(f.created.length, 0);
   assert.deepEqual(f.events, ["defer", "fetch", "edit"]);
@@ -161,6 +162,7 @@ test("channel-fetch failure does not create a ticket or claim the category is mi
 test("channel-creation failure edits the private deferred response", async t => {
   t.mock.method(console, "error", () => {});
   const f = await run(fixture([support], { createError: new Error("Missing permissions") }));
+  assert.deepEqual(console.error.mock.calls.map(call => call.arguments), [["Error creating ticket:", { name: "Error", code: "unknown" }]]);
   assert.equal(title(f), "Ticket failed");
   assert.equal(f.sent.length, 0);
   assert.match(f.replies[0].embeds[0].toJSON().description, /contact staff/i);
