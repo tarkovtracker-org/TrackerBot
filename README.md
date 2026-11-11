@@ -8,7 +8,7 @@
 The Discord companion for the [TarkovTracker.org](https://tarkovtracker.org) community: slash commands, reaction roles, welcome automation, ticket creation, and a public bug-intake portal that forwards reports straight to GitHub.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-18.17%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/Node.js-24_LTS-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![discord.js](https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white)](https://discord.js.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/tarkovtracker-org/trackerbot/pulls)
 </div>
@@ -108,7 +108,9 @@ Do not fix that by trusting arbitrary forwarded headers. The deployed form origi
 must also match the existing `ALLOWED_ORIGINS` setting. Credential, proxy-trust and
 production configuration changes require separate approval.
 
-Requires **Node.js 18.17+**.
+Use a **patched, supported Node.js 24 LTS** release in production. Node 18/20 are
+end-of-life. The package engine floor is API compatibility, not security support.
+See [maintenance and runtime policy](docs/MAINTENANCE.md).
 
 ## Features
 
@@ -131,7 +133,10 @@ npm run build
 
 This project has no bundle or generated build output. `npm run build` syntax-checks
 all JavaScript files without starting either service. CI runs the same command,
-the tests, and `npm run audit:prod`; production dependency advisories fail CI.
+the tests, and `npm run audit:prod` on Linux and Windows; production dependency
+advisories fail CI. Weekly scheduled CI and Dependabot updates keep new findings
+visible even without code changes. Dependencies and external actions are exactly
+pinned; ordinary updates have a seven-day cooldown, while security updates stay on.
 
 ### 2. Configure environment variables
 
