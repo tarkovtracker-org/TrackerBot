@@ -208,10 +208,25 @@ existing ticket in that category, rather than relying on an incomplete cache.
 
 For a minimal server, keep one public ticket-entry channel under **Support** and
 place private ticket channels in that same category; a separate Tickets category
-is not required. Ticket permission overwrites remain explicit: the requester,
+is not required. By default, ticket permission overwrites remain explicit: the requester,
 bot, and existing `Discord Admin` role receive access; `@everyone` is denied.
 Server administrators retain Discord's inherent access. The bot still needs its
-existing channel-management permissions; this change does not grant new access.
+existing channel-management permissions; no new server permissions are granted to the bot.
+
+For stable staff access, set optional comma-separated `TICKET_STAFF_ROLE_IDS`.
+Each explicit role must exist in the same server and cannot be `@everyone`;
+invalid/empty explicit lists fail closed. Explicit staff roles get only View
+Channel, Send Messages and Read Message History. This does not grant channel or
+message-management powers. Unset/blank preserves the existing name-based
+`Discord Admin` fallback and its old management overwrite; no existing ticket
+permissions are rewritten. Discord administrators retain inherent access.
+
+Overlapping clicks from the same member cannot create two simultaneous tickets
+in this bot process. Ticket creation and notification-role toggles acknowledge
+privately before API calls. Failed opening/confirmation notices never claim that
+an already-created ticket was not created; check the actual channel before
+repeating an unconfirmed action. Locks are not shared across multiple workers.
+
 Changing the destination only affects new tickets and duplicate checks there; it
 does not move, reopen, or delete existing tickets. Review outstanding tickets
 before changing destinations.
@@ -233,6 +248,31 @@ reorganize the server or alter existing category permissions.
 | `/put-member-role` | Add the member auto-role to everyone missing it (Admin only). |
 | `/wipe` | Confirmed bulk-delete of recent messages in the current channel (Admin only, 14-day Discord API limit). |
 | `/nuke` | Clone the current channel with all permissions/settings and delete the old one (Admin only, confirm with warning). |
+
+## Notification-role configuration
+
+Existing role buttons remain valid. Optional stable ID overrides survive role
+renames: `REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
+`REACTION_ROLE_POLLS_ID`, `REACTION_ROLE_NEWS_ID`, `REACTION_ROLE_NOTIFS_ID`.
+Unset/blank values use the legacy names `site`, `monitor`, `polls`, `news`, `notifs`
+(case-insensitive, trimmed). Invalid explicit IDs never silently fall back.
+
+Use dedicated notification roles with **no administrative/moderation powers**.
+Only ordinary view/send/history/reaction/embed/attachment/voice communication
+capabilities and application-command use are permitted by the safety mask;
+unknown future permission flags fail closed. Managed roles, `@everyone`, roles
+above the bot, configured `ADMIN_ROLE_ID` roles, configured ticket staff roles,
+and the legacy `Discord Admin` role cannot be self-assigned or removed through
+these buttons. The bot must already have Manage Roles and the right hierarchy;
+this code never grants itself server permissions.
+
+Review each selected role's channel overwrites as well as its guild permissions
+before configuring it: a role can expose private channels even with zero base
+permission flags. Source-level checks cannot certify your live role/channel
+policy. Membership and role definitions are fetched before toggling, and rapid
+same-member toggles are serialized in this one bot process. A failed confirmation
+notice does not imply the role update failed. No existing panel is reposted and
+no live role/category permissions are edited by these tests.
 
 ## Project structure
 

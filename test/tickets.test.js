@@ -4,17 +4,21 @@ import { ChannelType, Collection, MessageFlags, PermissionFlagsBits } from "disc
 import { handleButtonInteraction } from "../src/interactions/buttonHandlers.js";
 
 const originalCategoryId = process.env.TICKET_CATEGORY_ID;
+const originalStaffIds = process.env.TICKET_STAFF_ROLE_IDS;
 beforeEach(t => t.mock.method(console, "warn", () => {}));
 afterEach(() => {
   if (originalCategoryId === undefined) delete process.env.TICKET_CATEGORY_ID;
   else process.env.TICKET_CATEGORY_ID = originalCategoryId;
+  if (originalStaffIds === undefined) delete process.env.TICKET_STAFF_ROLE_IDS;
+  else process.env.TICKET_STAFF_ROLE_IDS = originalStaffIds;
 });
 
 const support = { id: "1536562632289689673", type: ChannelType.GuildCategory, name: "🆘 --- Support ---" };
 const category = (overrides = {}) => ({ ...support, ...overrides });
 
-function fixture(channels = [support], { fetchError, createError, deferError } = {}) {
+function fixture(channels = [support], { fetchError, createError, deferError, sendError } = {}) {
   delete process.env.TICKET_CATEGORY_ID;
+  delete process.env.TICKET_STAFF_ROLE_IDS;
   const events = [];
   const created = [];
   const replies = [];
@@ -27,7 +31,10 @@ function fixture(channels = [support], { fetchError, createError, deferError } =
     guild: {
       id: "guild-id",
       members: { me: { id: "bot-id" } },
-      roles: { cache: new Collection([["admin-id", { id: "admin-id", name: "Discord Admin" }]]) },
+      roles: {
+        cache: new Collection([["admin-id", { id: "admin-id", name: "Discord Admin" }]]),
+        fetch: async function () { return this.cache; }
+      },
       channels: {
         // Deliberately cold: routing and duplicate checks must use the fetched snapshot.
         cache: new Collection(),
@@ -40,7 +47,10 @@ function fixture(channels = [support], { fetchError, createError, deferError } =
           events.push("create");
           created.push(options);
           if (createError) throw createError;
-          return { send: async message => sent.push(message), toString: () => "<#ticket-id>" };
+          return {
+            send: async message => { if (sendError) throw sendError; sent.push(message); },
+            toString: () => "<#ticket-id>"
+          };
         }
       }
     },
@@ -166,6 +176,69 @@ test("expired initial acknowledgement stops without API work or a second reply",
   const f = await run(fixture([support], { deferError: new Error("Unknown interaction") }));
   assert.deepEqual(f.events, ["defer"]);
   assert.equal(console.warn.mock.calls.length, 1);
+});
+
+test("overlapping ticket clicks create only one private channel", async () => {
+  const first = fixture();
+  const second = fixture();
+  second.interaction.guild = first.interaction.guild;
+  await Promise.all([run(first), run(second)]);
+  assert.equal(first.created.length, 1);
+  assert.match(second.replies.at(-1).content, /already in progress/);
+});
+
+test("failed ticket requests release the per-member lock", async t => {
+  t.mock.method(console, "error", () => {});
+  await run(fixture([], { fetchError: new Error("Discord unavailable") }));
+  const next = await run(fixture());
+  assert.equal(next.created.length, 1);
+});
+
+test("opening-message failure does not pretend the created ticket failed", async () => {
+  const f = await run(fixture([support], { sendError: new Error("Cannot send opening notice") }));
+  assert.equal(f.created.length, 1);
+  assert.equal(title(f), "Ticket ready");
+  assert.equal(f.sent.length, 0);
+});
+
+test("explicit ticket staff role IDs survive renames with least-privilege access", async () => {
+  const f = fixture();
+  f.interaction.guild.roles.cache.set("support-staff", { id: "support-staff", name: "Renamed support" });
+  process.env.TICKET_STAFF_ROLE_IDS = " support-staff, support-staff ";
+  await run(f);
+  const staff = f.created[0].permissionOverwrites.slice(3);
+  assert.deepEqual(staff, [{
+    id: "support-staff",
+    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+  }]);
+});
+
+for (const ids of ["missing-role", "guild-id", ",,"]) {
+  test(`invalid explicit ticket staff configuration fails closed: ${ids}`, async () => {
+    const f = fixture();
+    f.interaction.guild.roles.cache.set("guild-id", { id: "guild-id", name: "@everyone" });
+    process.env.TICKET_STAFF_ROLE_IDS = ids;
+    await run(f);
+    assert.equal(f.created.length, 0);
+    assert.equal(title(f), "Ticket support unavailable");
+  });
+}
+
+test("a created ticket is not retried when its private confirmation notice fails", async () => {
+  const f = fixture();
+  f.interaction.editReply = async () => { throw new Error("Notice delivery failed"); };
+  await assert.doesNotReject(run(f));
+  assert.equal(f.created.length, 1);
+  assert.equal(console.warn.mock.calls.at(-1).arguments[0], "Ticket created but confirmation notice failed");
+});
+
+test("legacy installations without a named staff role never emit an empty role mention", async () => {
+  const f = fixture();
+  f.interaction.guild.roles.cache.clear();
+  await run(f);
+  assert.equal(title(f), "Ticket ready");
+  assert.equal(f.created[0].permissionOverwrites.length, 3);
+  assert.doesNotMatch(f.sent[0].embeds[0].toJSON().description, /<@&>/);
 });
 
 test("unrelated buttons remain unhandled", async () => {
