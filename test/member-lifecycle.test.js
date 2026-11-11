@@ -23,6 +23,7 @@ function fixture({ sendError = false, roleError = false } = {}) {
   const channel = {
     isTextBased: () => true,
     send: async options => {
+      if (sendError === "null") throw null;
       if (sendError) throw Object.assign(new Error("Missing permissions"), { code: 50013 });
       posts.push(options);
       const message = { id: "message", delete: async () => messages.delete("message") };
@@ -40,7 +41,7 @@ function fixture({ sendError = false, roleError = false } = {}) {
     }
   };
   registerMemberHandlers({ on: (event, listener) => handlers.set(event, listener) });
-  return { join: () => handlers.get(Events.GuildMemberAdd)(member), leave: () => handlers.get(Events.GuildMemberRemove)(member), messages, posts };
+  return { channel, join: () => handlers.get(Events.GuildMemberAdd)(member), leave: () => handlers.get(Events.GuildMemberRemove)(member), messages, posts };
 }
 
 test("failed welcome send is contained at the event boundary", async () => {
@@ -48,6 +49,19 @@ test("failed welcome send is contained at the event boundary", async () => {
   await assert.doesNotReject(f.join());
   assert.equal(console.error.mock.calls.length, 1);
   assert.equal(f.messages.size, 0);
+});
+
+test("null welcome rejection remains contained", async () => {
+  const f = fixture({ sendError: "null" });
+  await assert.doesNotReject(f.join());
+  assert.equal(console.error.mock.calls[0].arguments[1].code, "unknown");
+});
+
+test("null leave failure remains contained", async () => {
+  const f = fixture();
+  f.channel.isTextBased = () => { throw null; };
+  await assert.doesNotReject(f.leave());
+  assert.equal(console.error.mock.calls[0].arguments[1].code, "unknown");
 });
 
 test("missing runtime join configuration cannot reject the event listener", async () => {

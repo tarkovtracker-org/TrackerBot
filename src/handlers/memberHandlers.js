@@ -14,7 +14,7 @@ export function registerMemberHandlers(client) {
       await assignJoinRoles(member);
       await sendWelcomeMessage(member);
     } catch (err) {
-      console.error("Member join handler failed", { code: err.code ?? "unknown" });
+      console.error("Member join handler failed", { code: err?.code ?? "unknown" });
     }
   });
 
@@ -22,7 +22,7 @@ export function registerMemberHandlers(client) {
     try {
       await cleanupWelcomeMessage(member);
     } catch (err) {
-      console.error("Member leave handler failed", { code: err.code ?? "unknown" });
+      console.error("Member leave handler failed", { code: err?.code ?? "unknown" });
     }
   });
 }

@@ -10,6 +10,7 @@ function startup(mode) {
     for (const name of requiredEnvVars) process.env[name] = "synthetic-test-value";
     delete process.env.HONEYPOT_CHANNEL_ID;
     Client.prototype.login = async function () {
+      if (${JSON.stringify(mode)} === "null-failure") throw null;
       if (${JSON.stringify(mode)}.startsWith("failure")) throw Object.assign(new Error("synthetic-sensitive-detail"), { code: "TOKEN_INVALID" });
       if (${JSON.stringify(mode)} === "client-error") this.emit(Events.Error, Object.assign(new Error("synthetic-sensitive-detail"), { code: "GATEWAY_TEST" }));
     };
@@ -30,6 +31,14 @@ test("failed login is caught, safely logged, closes the client and exits nonzero
   assert.match(result.stderr, /Bot login failed/);
   assert.match(result.stderr, /TOKEN_INVALID/);
   assert.doesNotMatch(result.stderr, /synthetic-sensitive-detail/);
+});
+
+test("null login rejection is caught and cleans up the client", () => {
+  const result = startup("null-failure");
+  assert.ifError(result.error);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /CLIENT_DESTROYED/);
+  assert.match(result.stderr, /Bot login failed/);
 });
 
 test("cleanup rejection after a failed login remains safely handled", () => {
