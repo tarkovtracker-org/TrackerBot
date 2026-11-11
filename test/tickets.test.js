@@ -213,7 +213,7 @@ test("explicit ticket staff role IDs survive renames with least-privilege access
   }]);
 });
 
-for (const ids of ["missing-role", "guild-id", ",,"]) {
+for (const ids of ["missing-role", "guild-id", ",,", "admin-id,,admin-id"]) {
   test(`invalid explicit ticket staff configuration fails closed: ${ids}`, async () => {
     const f = fixture();
     f.interaction.guild.roles.cache.set("guild-id", { id: "guild-id", name: "@everyone" });

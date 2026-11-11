@@ -116,6 +116,14 @@ test("configured admin and private-support roles cannot be self-assigned even wi
   assert.equal(staff.changes.length, 0);
 });
 
+test("malformed staff configuration still protects its known staff IDs from self-service", async () => {
+  const f = fixture();
+  process.env.TICKET_STAFF_ROLE_IDS = `${f.role.id},,`;
+  await run(f);
+  assert.equal(f.changes.length, 0);
+  assert.equal(title(f), "Role unavailable");
+});
+
 test("@everyone cannot be used as a notification role", async () => {
   const f = fixture();
   f.role.id = "guild"; f.role.name = "@everyone";

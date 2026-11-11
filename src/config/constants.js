@@ -40,7 +40,9 @@ export const reactionRoleNameMap = reactionRoleButtonConfig.reduce((map, config)
 export function getTicketStaffRoleIds() {
   const value = process.env.TICKET_STAFF_ROLE_IDS?.trim();
   if (!value) return undefined;
-  return [...new Set(value.split(",").map(id => id.trim()).filter(Boolean))];
+  // Preserve empty tokens: ticket validation must reject a malformed explicit list.
+  // Keep valid IDs too, so known staff roles cannot become self-service on a typo.
+  return [...new Set(value.split(",").map(id => id.trim()))];
 }
 
 export function getNotificationRoleId(customId) {

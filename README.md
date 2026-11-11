@@ -215,9 +215,11 @@ existing channel-management permissions; no new server permissions are granted t
 
 For stable staff access, set optional comma-separated `TICKET_STAFF_ROLE_IDS`.
 Each explicit role must exist in the same server and cannot be `@everyone`;
-invalid/empty explicit lists fail closed. Explicit staff roles get only View
-Channel, Send Messages and Read Message History. This does not grant channel or
-message-management powers. Unset/blank preserves the existing name-based
+invalid explicit lists (including blank comma-separated items) fail closed.
+Explicit ticket overwrites add only View Channel, Send Messages and Read Message
+History, not management permission bits. Existing role/member permissions still
+apply; these overwrites do not restrict existing powers. Choose dedicated basic
+support roles if limited staff powers are required. Unset/blank preserves the existing name-based
 `Discord Admin` fallback and its old management overwrite; no existing ticket
 permissions are rewritten. Discord administrators retain inherent access.
 
