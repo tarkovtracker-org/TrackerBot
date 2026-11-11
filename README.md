@@ -345,8 +345,8 @@ smoke tests first. Official API references:
 
 ## Notification-role configuration
 
-Existing role buttons remain valid. Optional stable ID overrides survive role
-renames: `REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
+Existing button custom IDs remain recognized; availability depends on the role
+safety checks below. Optional stable ID overrides survive role renames: `REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
 `REACTION_ROLE_POLLS_ID`, `REACTION_ROLE_NEWS_ID`, `REACTION_ROLE_NOTIFS_ID`.
 Unset/blank values use the legacy names `site`, `monitor`, `polls`, `news`, `notifs`
 (case-insensitive, trimmed). Invalid explicit IDs never silently fall back.
@@ -359,6 +359,14 @@ above the bot, configured `ADMIN_ROLE_ID` roles, configured ticket staff roles,
 and the legacy `Discord Admin` role cannot be self-assigned or removed through
 these buttons. The bot must already have Manage Roles and the right hierarchy;
 this code never grants itself server permissions.
+
+Before upgrading, review legacy notification roles for unsupported flags such as
+`CreatePublicThreads` and `ChangeNickname`. Members cannot assign **or remove** a
+noncompliant role through its button. After reviewing the effects, remove
+unsupported flags from a dedicated notification role or configure a separate
+compliant role; never weaken the safety mask or remove necessary staff powers to
+make a button work. Existing memberships are not automatically migrated or
+removed. Staff must handle legacy opt-outs manually when retiring an old role.
 
 Review each selected role's channel overwrites as well as its guild permissions
 before configuring it: a role can expose private channels even with zero base
