@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { once } from "node:events";
 import { createRequire } from "node:module";
+import { runInNewContext } from "node:vm";
 
 // Exercise Axios's actual dependency, even when it is nested rather than hoisted.
 const axiosRequire = createRequire(createRequire(import.meta.url).resolve("axios"));
@@ -53,6 +54,20 @@ test("redirects strip array-form credentials across origins", { timeout: 5000 },
     assert.equal(headers[name], undefined, `${name} must not cross origins`);
   }
 });
+
+for (const headers of [
+  { "X-Api-Key": "test-marker", "X-Control": "preserved" },
+  ["X-Api-Key", "test-marker", "X-Control", "preserved"]
+]) {
+  test(`redirects honor cross-realm sensitiveHeaders with ${Array.isArray(headers) ? "array" : "object"} headers`, { timeout: 5000 }, async t => {
+    const sensitiveHeaders = runInNewContext('["X-Api-Key"]');
+    assert.equal(Array.isArray(sensitiveHeaders), true);
+    assert.equal(sensitiveHeaders instanceof Array, false);
+    const received = await redirectedHeaders(t, headers, sensitiveHeaders);
+    assert.equal(received["x-api-key"], undefined, "custom credentials must not cross origins");
+    assert.equal(received["x-control"], "preserved");
+  });
+}
 
 test("redirects strip sensitive header names containing regex metacharacters", { timeout: 5000 }, async t => {
   const headers = await redirectedHeaders(t, {
