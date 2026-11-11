@@ -155,7 +155,7 @@ export async function executeWipe(interaction) {
     });
   } catch (err) {
     // awaitMessageComponent rejects with InteractionCollectorError on timeout
-    if (err.code === "InteractionCollectorError") {
+    if (err?.code === "InteractionCollectorError") {
       await interaction.editReply({
         embeds: [
           createCardEmbed({
@@ -169,7 +169,7 @@ export async function executeWipe(interaction) {
       return;
     }
 
-    console.error("Error during channel wipe:", err);
+    console.error("Error during channel wipe:", { code: err?.code ?? "unknown" });
     await interaction.editReply({
       embeds: [
         createCardEmbed({

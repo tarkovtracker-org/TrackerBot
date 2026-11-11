@@ -181,7 +181,7 @@ export async function executeNuke(interaction) {
     try {
       clonedChannel = await guild.channels.create(cloneOptions);
     } catch (err) {
-      console.error("Nuke: failed to clone channel:", err);
+      console.error("Nuke: failed to clone channel:", { code: err?.code ?? "unknown" });
       await interaction.editReply({
         embeds: [
           createCardEmbed({
@@ -200,7 +200,7 @@ export async function executeNuke(interaction) {
       await clonedChannel.setPosition(oldChannel.position, { reason: `/nuke by ${interaction.user.tag}` });
     } catch (err) {
       // Non-fatal: the clone exists, just not at the exact position.
-      console.warn("Nuke: could not restore channel position:", err);
+      console.warn("Nuke: could not restore channel position:", { code: err?.code ?? "unknown" });
     }
 
     // Delete the old channel now that the clone is in place.
@@ -208,7 +208,7 @@ export async function executeNuke(interaction) {
     try {
       await oldChannel.delete(`/nuke by ${interaction.user.tag}`);
     } catch (err) {
-      console.error("Nuke: failed to delete old channel:", err);
+      console.error("Nuke: failed to delete old channel:", { code: err?.code ?? "unknown" });
       oldChannelDeleted = false;
     }
 
@@ -237,7 +237,7 @@ export async function executeNuke(interaction) {
       ]
     }).catch(() => {});
   } catch (err) {
-    if (err.code === "InteractionCollectorError") {
+    if (err?.code === "InteractionCollectorError") {
       await interaction.editReply({
         embeds: [
           createCardEmbed({
@@ -251,7 +251,7 @@ export async function executeNuke(interaction) {
       return;
     }
 
-    console.error("Error during channel nuke:", err);
+    console.error("Error during channel nuke:", { code: err?.code ?? "unknown" });
     await interaction.editReply({
       embeds: [
         createCardEmbed({
