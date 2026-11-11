@@ -85,7 +85,7 @@ export async function executeNuke(interaction) {
 
   const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
 
-  const reply = await interaction.reply({
+  await interaction.reply({
     embeds: [
       createCardEmbed({
         title: "Confirm Channel Nuke",
@@ -102,6 +102,7 @@ export async function executeNuke(interaction) {
     (i.customId === "confirm_nuke" || i.customId === "cancel_nuke");
 
   try {
+    const reply = await interaction.fetchReply();
     const buttonInteraction = await reply.awaitMessageComponent({
       filter,
       time: CONFIRM_TIMEOUT_MS
@@ -122,6 +123,20 @@ export async function executeNuke(interaction) {
     }
 
     await buttonInteraction.deferUpdate();
+
+    // Authority may have changed while the confirmation was open; bypass cache.
+    const member = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
+    if (!hasAdminRole(member.roles.cache)) {
+      await interaction.editReply({
+        embeds: [createCardEmbed({
+          title: "Permission Required",
+          description: "Your admin access has changed. Nothing was deleted.",
+          color: colors.error
+        })],
+        components: []
+      });
+      return;
+    }
 
     const oldChannel = channel;
     const guild = interaction.guild;
