@@ -37,9 +37,9 @@ The job is **disabled until the owner sets repository variable
 flag, expected repository, schedule/manual event, exact default-branch ref, clean
 checkout and trusted workflow revision. No pull-request/fork event can run its
 write path. Checkout is immutable and does not persist credentials; a scoped
-GitHub CLI credential helper authenticates only the topic-branch push. There is
-no new PAT/App secret, auto-approval, auto-merge, privileged PR checkout, or
-`actions: write` dispatch bypass.
+GitHub CLI credential helper authenticates remote reads and the topic-branch push.
+There is no new PAT/App secret, auto-approval, auto-merge, privileged PR checkout,
+or `actions: write` dispatch bypass.
 
 Before enabling the variable, the owner must explicitly approve enabling
 **Allow GitHub Actions to create and approve pull requests** in repository Actions

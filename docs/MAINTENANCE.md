@@ -41,8 +41,9 @@ security budgets to increase capacity.
 ## Repository protection and annual maintenance
 
 The license workflow prepares a reviewed topic-branch PR rather than pushing to
-the default branch. It stays disabled until the owner approves the Actions
-PR-creation setting and sets `LICENSE_PR_AUTOMATION_ENABLED=true`. No protection,
+the default branch. The job is disabled unless the repository variable
+`LICENSE_PR_AUTOMATION_ENABLED=true` is set. The owner must separately approve the
+Actions PR-creation setting before enabling that variable. No protection,
 bypass, credential, or repository-variable setting is changed by source tests.
 See [repository guards and the owner verification checklist](REPOSITORY-GUARDS.md)
 for the proposed review/check policy and automation-created CI approval behavior.

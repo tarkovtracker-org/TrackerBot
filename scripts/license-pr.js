@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const repository = "tarkovtracker-org/TrackerBot";
+const credentialHelper = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"];
 export class LicenseAutomationError extends Error {}
 
 export function updateLicenseYear(source, year) {
@@ -38,11 +39,13 @@ export async function licensePullRequest({
   const branch = `automation/license-year-${year}`;
   if (branch === env.DEFAULT_BRANCH) throw new LicenseAutomationError("The license topic must differ from the default branch.");
   const prs = JSON.parse(run("gh", ["pr", "list", "--repo", repository, "--head", branch, "--base", env.DEFAULT_BRANCH,
-    "--state", "all", "--limit", "100", "--json", "number,state,url"]));
-  if (!Array.isArray(prs)) throw new LicenseAutomationError("Unable to establish existing license PR state.");
+    "--state", "all", "--limit", "100", "--json", "number,state,url,isCrossRepository"]));
+  if (!Array.isArray(prs) || prs.some(pr => pr?.isCrossRepository !== false)) {
+    throw new LicenseAutomationError("Unable to establish same-repository license PR state.");
+  }
   let exists = false;
   try {
-    run("git", ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
+    run("git", [...credentialHelper, "ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
     exists = true;
   } catch (error) {
     if (error.status !== 2) throw error; // A transport error is not proof that the branch is absent.
@@ -51,7 +54,7 @@ export async function licensePullRequest({
     if (prs.length !== 1 || prs[0].state !== "OPEN") {
       throw new LicenseAutomationError("An existing license branch needs owner inspection; it will not be overwritten.");
     }
-    run("git", ["fetch", "--no-tags", "origin", `refs/heads/${branch}`]);
+    run("git", [...credentialHelper, "fetch", "--no-tags", "origin", `refs/heads/${branch}`]);
     if (run("git", ["diff", "--name-only", `${env.GITHUB_SHA}...FETCH_HEAD`, "--"]) !== "LICENSE") {
       throw new LicenseAutomationError("Existing license branch contains unexpected changes.");
     }
@@ -68,7 +71,7 @@ export async function licensePullRequest({
     "commit", "-m", `chore: update license year to ${year}`, "--", "LICENSE"]);
   // Authentication is scoped to this one command, never persisted by checkout.
   // No force push, default-branch push, auto-merge, approval, or dispatch bypass.
-  run("git", ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", "push", "origin", `HEAD:refs/heads/${branch}`]);
+  run("git", [...credentialHelper, "push", "origin", `HEAD:refs/heads/${branch}`]);
   const url = run("gh", ["pr", "create", "--repo", repository, "--head", branch, "--base", env.DEFAULT_BRANCH,
     "--title", `chore: update license year to ${year}`,
     "--body", "Updates only the project copyright year. Human review and the normal CI/security checks are required. Approve any automation-created workflow runs after inspecting this license-only diff; do not bypass branch protections."]);

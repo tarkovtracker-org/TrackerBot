@@ -17,8 +17,8 @@ test("annual license automation uses a reviewed PR rather than pushing to the de
   assert.match(job.if, /github\.ref/);
   assert.match(job.if, /default_branch/);
   assert.match(job.if, /LICENSE_PR_AUTOMATION_ENABLED/);
-  assert.ok(job.steps.some(step => step.run === "node scripts/license-pr.js"));
-  assert.doesNotMatch(text, /git push\s*$/m, "never push the checked-out default branch");
+  assert.deepEqual(job.steps.filter(step => step.run).map(step => step.run), ["node scripts/license-pr.js"]);
+  assert.doesNotMatch(text, /\bgit\s+push\b/, "never add a direct workflow push, with or without arguments");
 });
 
 test("only trusted schedule/manual events can reach the write job and checkout does not retain credentials", () => {

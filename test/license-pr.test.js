@@ -12,7 +12,8 @@ const env = {
   GITHUB_EVENT_NAME: "schedule", DEFAULT_BRANCH: "main", GITHUB_REF: "refs/heads/main", GITHUB_SHA: sha
 };
 const source = "MIT License\n\nCopyright (c) 2026 TarkovTracker.org\n\nLicense body.\n";
-function fixture({ existing = false, prs = [], changes = "LICENSE", dirty = false, transportError = false, pushError = false } = {}) {
+function fixture({ existing = false, prs = [], changes = "LICENSE", dirty = false, transportError = false, pushError = false,
+  licenseMismatch = false, createResult = "https://github.com/tarkovtracker-org/TrackerBot/pull/999", createError = false } = {}) {
   const calls = [];
   const writes = [];
   const options = {
@@ -21,15 +22,19 @@ function fixture({ existing = false, prs = [], changes = "LICENSE", dirty = fals
       calls.push({ command, args });
       if (command === "git" && args[0] === "rev-parse") return sha;
       if (command === "git" && args[0] === "status") return dirty ? " M other.js" : "";
-      if (command === "git" && args[0] === "ls-remote") {
+      if (command === "git" && args.includes("ls-remote")) {
         if (transportError) throw Object.assign(new Error("secret transport body"), { status: 128 });
         if (!existing) throw Object.assign(new Error("no matching ref"), { status: 2 });
         return `${sha}\trefs/heads/automation/license-year-2027`;
       }
       if (command === "git" && args.includes("--name-only")) return changes;
       if (command === "git" && args.includes("push") && pushError) throw new Error("unconfirmed push");
-      if (command === "gh" && args[1] === "list") return JSON.stringify(prs);
-      if (command === "gh" && args[1] === "create") return "https://github.com/tarkovtracker-org/TrackerBot/pull/999";
+      if (command === "git" && args.includes("--quiet") && licenseMismatch) throw Object.assign(new Error("LICENSE differs"), { status: 1 });
+      if (command === "gh" && args[1] === "list") return JSON.stringify(prs.map(pr => ({ isCrossRepository: false, ...pr })));
+      if (command === "gh" && args[1] === "create") {
+        if (createError) throw new Error("unconfirmed PR creation");
+        return createResult;
+      }
       return "";
     }
   };
@@ -113,6 +118,41 @@ for (const setup of [
   });
 }
 
+for (const metadata of [true, undefined]) {
+  test(`an existing origin branch never reuses fork/unknown PR metadata: ${metadata}`, async () => {
+    const f = fixture({ existing: true, prs: [{ state: "OPEN", isCrossRepository: metadata }] });
+    await assert.rejects(licensePullRequest(f.options));
+    assert.equal(f.writes.length, 0);
+    assert.equal(f.calls.some(call => call.args.includes("push") || (call.command === "gh" && call.args[1] === "create")), false);
+  });
+}
+
+test("a mismatched existing LICENSE rejects reuse without push or PR creation", async () => {
+  const f = fixture({ existing: true, prs: [{ state: "OPEN" }], licenseMismatch: true });
+  await assert.rejects(licensePullRequest(f.options), /LICENSE differs/);
+  assert.equal(f.calls.some(call => call.args.includes("push") || (call.command === "gh" && call.args[1] === "create")), false);
+});
+
+for (const setup of [{ createResult: "" }, { createResult: "not-a-url" },
+  { createResult: "https://github.com/fork/TrackerBot/pull/999" }, { createError: true }]) {
+  test(`unconfirmed PR creation is never retried or reported successful: ${JSON.stringify(setup)}`, async () => {
+    const f = fixture(setup);
+    await assert.rejects(licensePullRequest(f.options));
+    assert.equal(f.calls.filter(call => call.args.includes("push")).length, 1);
+    assert.equal(f.calls.filter(call => call.command === "gh" && call.args[1] === "create").length, 1);
+  });
+}
+
+test("all network Git commands use a nonpersistent scoped credential helper", async () => {
+  for (const setup of [{}, { existing: true, prs: [{ state: "OPEN" }] }]) {
+    const f = fixture(setup);
+    await licensePullRequest(f.options);
+    const network = f.calls.filter(call => call.command === "git" && call.args.some(arg => ["ls-remote", "fetch", "push"].includes(arg)));
+    assert.equal(network.length, 2);
+    for (const call of network) assert.deepEqual(call.args.slice(0, 4), ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"]);
+  }
+});
+
 test("real Git publishes only a license topic branch and safely reuses it (no GitHub writes)", async t => {
   const directory = await mkdtemp(path.join(tmpdir(), "trackerbot-license-git-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -150,7 +190,7 @@ test("real Git publishes only a license topic branch and safely reuses it (no Gi
   assert.match(git(["--git-dir", remote, "show", "automation/license-year-2027:LICENSE"]), /2026-2027 TarkovTracker/);
   const topic = git(["--git-dir", remote, "rev-parse", "automation/license-year-2027"]);
   git(["switch", "main"]);
-  prs = [{ number: 999, state: "OPEN", url: "https://github.com/tarkovtracker-org/TrackerBot/pull/999" }];
+  prs = [{ number: 999, state: "OPEN", isCrossRepository: false, url: "https://github.com/tarkovtracker-org/TrackerBot/pull/999" }];
   assert.equal((await licensePullRequest(options)).status, "existing");
   assert.equal(pushes, 1, "reusing a topic never pushes again");
   assert.equal(git(["--git-dir", remote, "rev-parse", "automation/license-year-2027"]), topic);
