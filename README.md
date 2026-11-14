@@ -114,7 +114,8 @@ See [maintenance and runtime policy](docs/MAINTENANCE.md).
 
 ## Features
 
-- Ticket creation flow with private support channels
+- Optional persistent help-desk dropdown with product routing, privacy-separated account/moderation tickets, and close/reopen controls
+- Legacy ticket creation flow with private support channels
 - Reaction-role assignment, welcome messages and auto-roles for new members
 - Website-first sharing (`/tt url`, `/tt resources`) and private command help
 - Previewed bot announcements/replies (`/message`), without accidental mention pings
@@ -195,6 +196,30 @@ npm run start:web   # Public issue forms (http://localhost:3000)
 - Bot login success is logged as soon as Discord authenticates the token.
 - `webserver.js` serves `http://localhost:3000` (issue portal), plus `http://localhost:3000/issue` and `http://localhost:3000/data` (forms).
 
+## Help desk
+
+The optional help desk provides three public-help routes and two private ticket
+queues (account/progress and harassment/unwanted DMs). `/support check` validates
+configuration privately; `/support panel` previews publishing a panel in the
+current channel, or updates an existing panel with `message_id`. Nothing is
+posted automatically on startup. Permanent contact/product/bug links work without
+the bot. Members see the intended ticket audience before opening a channel.
+
+New tickets retain their history when closed. Requesters or assigned ticket staff
+can close; only that queue's assigned staff can reopen. Buttons survive restarts;
+`/ticket close` and `/ticket reopen` also work if the opening message was not
+delivered. No transcript export, automatic deletion, or onboarding edits are added.
+Discord administrators inherently retain access; do not promise anonymity from them.
+
+All nine optional `SUPPORT_*` settings in `.env.example` are required together.
+With none configured, existing ticket buttons keep their previous behavior. With
+any configured, old `create_ticket` buttons route to the new account-support
+privacy disclosure; invalid/partial settings fail closed rather than using legacy
+staff access. Existing ticket permissions are not migrated. Locks are process-local;
+confirm a single bot instance, including deployment overlap, before rollout.
+
+See [help-desk setup, privacy, smoke tests, and rollback](docs/SUPPORT.md).
+
 ## Ticket placement
 
 Set `TICKET_CATEGORY_ID` to a **category ID in the same server**, not the ID of the
@@ -251,6 +276,9 @@ reorganize the server or alter existing category permissions.
 | `/tt url [private] [reply_to]` | Share the website with a clean embed and link button. |
 | `/tt resources [private] [reply_to]` | Share maintained website guides and community tools. |
 | `/tt help` | Private command guide, available to every member. |
+| `/support check` | Admin-only private validation of help-desk configuration and bot permissions. |
+| `/support panel [message_id]` | Admin-only preview to publish/update a help-desk panel in this channel. |
+| `/ticket close` / `/ticket reopen` | Retain a managed ticket's history; reopening requires its assigned staff. |
 | `/message content [title] [reply_to] [preview]` | Admin-only announcement/reply; defaults to a private Send/Cancel preview. Optional title sends a styled embed; otherwise plain text. |
 | `/channel purge count` | Confirm deletion of **up to 1–1000** recent messages, not an unbounded channel wipe. Discord skips messages over 14 days old. |
 | `/channel archive` | Confirm staff-only text-channel archiving for audit, retaining history. |

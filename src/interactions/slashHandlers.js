@@ -4,6 +4,8 @@ import { executeMessage } from "../commands/messageCommand.js";
 import { executeArchive } from "../commands/archiveCommand.js";
 import { executeWipe } from "../commands/wipeCommand.js";
 import { executeNuke } from "../commands/nukeCommand.js";
+import { executeSupport } from "../commands/supportCommand.js";
+import { handleSupportInteraction } from "./supportHandlers.js";
 
 // One in-flight moderation action per guild/channel, including its confirmation.
 // This bot is one process; a second worker requires a distributed lock.
@@ -17,6 +19,13 @@ export async function handleChatInputCommand(interaction) {
   }
   if (interaction.commandName === "tt") {
     await executeResource(interaction);
+    return true;
+  }
+  if (interaction.commandName === "ticket") {
+    return handleSupportInteraction(interaction);
+  }
+  if (interaction.commandName === "support") {
+    await executeSupport(interaction);
     return true;
   }
   if (interaction.commandName === "message") {

@@ -35,6 +35,13 @@ const slashCommands = [
       .addIntegerOption(opt => opt.setName("count").setDescription("Maximum messages to delete; messages over 14 days old are skipped")
         .setRequired(true).setMinValue(1).setMaxValue(1000)))
     .addSubcommand(sub => sub.setName("archive").setDescription("Hide this text channel for staff review without deleting its history")),
+  command("ticket", "Close or reopen a managed private support ticket")
+    .addSubcommand(sub => sub.setName("close").setDescription("Close this ticket without deleting history"))
+    .addSubcommand(sub => sub.setName("reopen").setDescription("Reopen this ticket (assigned staff only)")),
+  command("support", "Check help-desk configuration or publish its panel", true)
+    .addSubcommand(sub => sub.setName("check").setDescription("Privately validate support destinations and bot permissions"))
+    .addSubcommand(sub => sub.setName("panel").setDescription("Preview and publish or update the help-desk panel")
+      .addStringOption(opt => opt.setName("message_id").setDescription("Existing help-desk message ID in this channel to update"))),
   command("nuke", "Confirm a channel reset: clone settings, then permanently delete its history", true)
 ];
 
