@@ -67,7 +67,9 @@ export async function executeSupport(interaction) {
     }
     panelOperations.add(key);
     ownsLock = true;
-    const messageId = interaction.options.getString("message_id")?.trim();
+    const suppliedMessageId = interaction.options.getString("message_id");
+    const messageId = suppliedMessageId?.trim();
+    if (suppliedMessageId != null && !messageId) throw new Error("An update requires a nonblank message ID.");
     await panelTarget(interaction, context.bot, messageId);
     const payload = supportPanel(context.config, interaction.guildId);
     const sendId = `support_publish:${interaction.id}`;

@@ -205,8 +205,8 @@ current channel, or updates an existing panel with `message_id`. Nothing is
 posted automatically on startup. Permanent contact/product/bug links work without
 the bot. Members see the intended ticket audience before opening a channel.
 
-New tickets retain their history when closed. Requesters or assigned ticket staff
-can close; only that queue's assigned staff can reopen. Buttons survive restarts;
+New tickets retain their history when closed. Requesters or members of the configured
+queue staff roles can close; only members of those roles can reopen. Buttons survive restarts;
 `/ticket close` and `/ticket reopen` also work if the opening message was not
 delivered. No transcript export, automatic deletion, or onboarding edits are added.
 Discord administrators inherently retain access; do not promise anonymity from them.
@@ -278,7 +278,7 @@ reorganize the server or alter existing category permissions.
 | `/tt help` | Private command guide, available to every member. |
 | `/support check` | Admin-only private validation of help-desk configuration and bot permissions. |
 | `/support panel [message_id]` | Admin-only preview to publish/update a help-desk panel in this channel. |
-| `/ticket close` / `/ticket reopen` | Retain a managed ticket's history; reopening requires its assigned staff. |
+| `/ticket close` / `/ticket reopen` | Retain a managed ticket's history; reopening requires membership in its configured queue staff roles. |
 | `/message content [title] [reply_to] [preview]` | Admin-only announcement/reply; defaults to a private Send/Cancel preview. Optional title sends a styled embed; otherwise plain text. |
 | `/channel purge count` | Confirm deletion of **up to 1–1000** recent messages, not an unbounded channel wipe. Discord skips messages over 14 days old. |
 | `/channel archive` | Confirm staff-only text-channel archiving for audit, retaining history. |

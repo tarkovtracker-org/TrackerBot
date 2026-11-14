@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ChannelType, PermissionFlagsBits } from "discord.js";
+import { ChannelType, OverwriteType, PermissionFlagsBits } from "discord.js";
 
 export const supportMenuId = "support:route:v1";
 export const supportProducts = {
@@ -102,10 +102,10 @@ export function parseTicketTopic(topic) {
 
 export function ticketOverwrites(guildId, botId, ticket, ownerId, state) {
   return [
-    { id: guildId, deny: [PermissionFlagsBits.ViewChannel] },
-    { id: ownerId, allow: conversationAccess.filter(bit => state === "open" || bit !== PermissionFlagsBits.SendMessages),
+    { id: guildId, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
+    { id: ownerId, type: OverwriteType.Member, allow: conversationAccess.filter(bit => state === "open" || bit !== PermissionFlagsBits.SendMessages),
       deny: state === "closed" ? [PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads] : [] },
-    { id: botId, allow: ticketBotAccess },
-    ...ticket.roleIds.map(roleId => ({ id: roleId, allow: conversationAccess }))
+    { id: botId, type: OverwriteType.Member, allow: ticketBotAccess },
+    ...ticket.roleIds.map(roleId => ({ id: roleId, type: OverwriteType.Role, allow: conversationAccess }))
   ];
 }

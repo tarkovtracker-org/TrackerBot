@@ -10,7 +10,7 @@ export async function executeResource(interaction) {
     await interaction.reply({
       embeds: [createCardEmbed({
         title: "TrackerBot commands",
-        description: "**/tt url** — share the website\n**/tt resources** — share maintained guides and tools\nAdd **private:true** to keep a link to yourself, or **reply_to** to answer a message in this channel.\n\nIn a managed support ticket: **/ticket close** retains history; **/ticket reopen** is for its assigned staff.\nStaff: **/support check** validates help-desk settings; **/support panel** previews publishing/updating its panel. **/message** previews announcements/replies; **/channel purge** removes a chosen number of recent messages; **/channel archive** hides a channel for review; **/nuke** resets a channel after confirmation."
+        description: "**/tt url** — share the website\n**/tt resources** — share maintained guides and tools\nAdd **private:true** to keep a link to yourself, or **reply_to** to answer a message in this channel.\n\nIn a managed support ticket: **/ticket close** retains history; **/ticket reopen** requires membership in its configured queue staff roles.\nStaff: **/support check** validates help-desk settings; **/support panel** previews publishing/updating its panel. **/message** previews announcements/replies; **/channel purge** removes a chosen number of recent messages; **/channel archive** hides a channel for review; **/nuke** resets a channel after confirmation."
       })],
       flags: MessageFlags.Ephemeral,
       allowedMentions: noMentions

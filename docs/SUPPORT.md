@@ -92,10 +92,11 @@ legacy `Ticket for <id>` topic in the account destination also prevents duplicat
 creation, but legacy tickets do not gain new lifecycle controls automatically.
 Review outstanding legacy tickets before changing destinations.
 
-A requester or the ticket's assigned staff can close it. Closing atomically sets
+A requester or any member of the configured queue staff roles can close a ticket.
+There is no individual staff-assignment system. Closing atomically sets
 closed metadata and explicit overwrites: the requester keeps read access but is
 denied sending and thread creation. Staff retain access for follow-up notes.
-Only that queue's current assigned staff can reopen it; cached interaction roles
+Only members of that queue's current configured staff roles can reopen it; cached interaction roles
 and unrelated support/admin roles do not authorize bot lifecycle actions. Discord
 administrators still have their inherent manual powers. Lifecycle changes apply
 the **current configured staff list**, replacing extra channel overwrites; review
@@ -138,7 +139,7 @@ account creation. There is no new server-wide ticket rate limiter.
   moderation staff can see it; account-only/developer roles cannot. Confirm the
   named alternate contact is suitable for reports about normal ticket handlers.
 - Close as requester: history remains readable and sending/thread creation is
-  denied. Requester cannot reopen; assigned staff can reopen. An unrelated staff
+  denied. Requester cannot reopen; a member of its queue staff roles can. An unrelated staff
   role cannot. Remove a staff role and verify an old button cannot bypass removal.
 - Restart the bot: the existing panel, existing ticket buttons, duplicate detection
   and slash lifecycle commands still work without reposting. Remove a test opening

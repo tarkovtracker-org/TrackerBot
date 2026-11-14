@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { ChannelType, Collection, MessageFlags, PermissionFlagsBits as P } from "discord.js";
+import { ChannelType, Collection, MessageFlags, OverwriteType, PermissionOverwrites, PermissionFlagsBits as P } from "discord.js";
 import { adminRoles, isSafeNotificationRole } from "../src/config/constants.js";
 import { getSupportConfig, loadSupportContext, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketTopic } from "../src/config/support.js";
 import { handleSupportInteraction } from "../src/interactions/supportHandlers.js";
@@ -392,6 +392,33 @@ test("panel cancellation sends nothing and releases its lock", async () => {
   await executeSupport(f.interaction);
   assert.equal(f.publicMessages.length, 1);
 });
+
+for (const messageId of ["", "   "]) {
+  test(`supplied blank panel update ID never publishes a new panel: ${JSON.stringify(messageId)}`, async () => {
+    const f = fixture({ actorRoles: [ids.admin] }); f.setMessageId(messageId);
+    await executeSupport(f.interaction);
+    assert.equal(f.publicMessages.length, 0);
+    assert.match(last(f), /Nothing published/);
+  });
+}
+
+for (const action of ["close", "reopen"]) {
+  test(`staff can ${action} after restart with an uncached requester (real SDK serialization)`, async () => {
+    const f = fixture({ action, actor: ids.other, actorRoles: [ids.moderationRole], state: action === "close" ? "open" : "closed" });
+    const coldGuild = { roles: { resolve: () => null }, client: { users: { resolve: () => null } } };
+    let serialized;
+    const edit = f.ticket.edit;
+    f.ticket.edit = async payload => {
+      serialized = payload.permissionOverwrites.map(overwrite => PermissionOverwrites.resolve(overwrite, coldGuild));
+      return edit(payload);
+    };
+    await handleSupportInteraction(f.interaction);
+    assert.equal(f.edits.length, 1);
+    assert.deepEqual(serialized.map(overwrite => overwrite.type), [OverwriteType.Role, OverwriteType.Member, OverwriteType.Member, OverwriteType.Role]);
+    assert.equal(serialized[1].id, ids.member);
+    assert.match(last(f), /History retained/);
+  });
+}
 
 test("panel update edits only an existing bot-owned help panel in this channel", async () => {
   const f = fixture({ actorRoles: [ids.admin] }); f.setMessageId(ids.message);
