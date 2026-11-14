@@ -1,6 +1,7 @@
 import { Events, MessageFlags } from "discord.js";
 import { handleChatInputCommand } from "../interactions/slashHandlers.js";
 import { handleButtonInteraction } from "../interactions/buttonHandlers.js";
+import { handleSupportInteraction } from "../interactions/supportHandlers.js";
 
 export function registerInteractionHandler(client) {
   client.on(Events.InteractionCreate, async interaction => {
@@ -22,6 +23,7 @@ export function registerInteractionHandler(client) {
         return;
       }
 
+      if (await handleSupportInteraction(interaction)) return;
       if (interaction.isButton()) {
         await handleButtonInteraction(interaction);
       }
