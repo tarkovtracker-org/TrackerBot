@@ -133,6 +133,98 @@ test("capacity never evicts an active attempt budget to admit a new key", () => 
   assert.equal(policy.attempt("first").code, "attempt_limit");
 });
 
+test("capacity admission never scans active entries before any client can expire", () => {
+  const { policy, setTime } = fixture({ maxClients: 3 });
+  for (const key of ["first", "second", "third"]) policy.reserve(key, key).settle("accepted");
+  const filter = Array.prototype.filter;
+  let scans = 0;
+  Array.prototype.filter = function (...args) { scans++; return filter.apply(this, args); };
+  try {
+    for (const time of [1000, 2000, 60000, 3600000, 43199999]) {
+      setTime(time);
+      assert.equal(policy.attempt("new-client").code, "report_capacity");
+    }
+  } finally { Array.prototype.filter = filter; }
+  assert.equal(scans, 0, "no event/attempt arrays should be scanned for denied new clients before expiry");
+});
+
+test("extending a client's expiry removes its obsolete deadline without a sweep", () => {
+  const { policy, setTime } = fixture({ maxClients: 1 });
+  policy.attempt("active");
+  setTime(30000);
+  policy.attempt("active");
+  const filter = Array.prototype.filter;
+  let scans = 0;
+  Array.prototype.filter = function (...args) { scans++; return filter.apply(this, args); };
+  try {
+    setTime(60000);
+    assert.equal(policy.attempt("other").code, "report_capacity");
+  } finally { Array.prototype.filter = filter; }
+  assert.equal(scans, 0, "an obsolete attempt deadline must not scan still-active clients");
+  setTime(90000);
+  assert.equal(policy.attempt("other").ok, true, "the latest attempt expires at the exact boundary");
+});
+
+test("failed delivery preserves an active attempt budget and cannot admit a rotating key", () => {
+  const { policy } = fixture({ maxClients: 1 });
+  for (let index = 0; index < 5; index++) assert.equal(policy.attempt("active").ok, true);
+  policy.reserve("active", "report").settle("failed");
+  assert.equal(policy.attempt("rotating").code, "report_capacity");
+  assert.equal(policy.attempt("active").code, "attempt_limit");
+});
+
+test("pending delivery survives all expiries and failed settlement releases an empty slot", () => {
+  const { policy, setTime } = fixture({ maxClients: 1 });
+  const pending = policy.reserve("pending", "report");
+  setTime(86400000);
+  assert.equal(policy.attempt("other").code, "report_capacity");
+  pending.settle("failed");
+  assert.equal(policy.attempt("other").ok, true);
+});
+
+test("backward clock jumps never expire a client while a later attempt remains live", () => {
+  const { policy, setTime } = fixture({ maxClients: 1 });
+  setTime(100000);
+  policy.attempt("active");
+  setTime(0);
+  for (let index = 0; index < 4; index++) policy.attempt("active");
+  assert.equal(policy.attempt("active").retryAfterSeconds, 60, "retry waits use the earliest actual attempt");
+  setTime(60000);
+  assert.equal(policy.attempt("other").code, "report_capacity");
+  setTime(160000);
+  assert.equal(policy.attempt("other").ok, true);
+});
+
+test("out-of-order delivery timestamps preserve every uncertain hold until its own expiry", () => {
+  const { policy, setTime } = fixture({ maxClients: 1 });
+  setTime(100000);
+  policy.reserve("active", "first").settle("uncertain");
+  setTime(700000);
+  const second = policy.reserve("active", "second");
+  assert.equal(second.ok, true);
+  setTime(0);
+  second.settle("uncertain");
+  setTime(43200000);
+  assert.equal(policy.attempt("other").code, "report_capacity");
+  assert.equal(policy.reserve("active", "first").code, "delivery_uncertain");
+  setTime(43300000);
+  assert.equal(policy.attempt("other").ok, true);
+});
+
+test("a clock rollback during delivery cannot shorten an earlier report's cooldown", () => {
+  const { policy, setTime } = fixture();
+  setTime(100000);
+  accept(policy, "first");
+  setTime(700000);
+  const second = policy.reserve("client", "second");
+  setTime(0);
+  second.settle("accepted");
+  setTime(600000);
+  const denied = policy.reserve("client", "third");
+  assert.equal(denied.code, "report_cooldown");
+  assert.equal(denied.retryAfterSeconds, 100);
+});
+
 test("cooldown starts at delivery completion rather than reservation", () => {
   const { policy, setTime } = fixture();
   const admission = policy.reserve("client", "first");
