@@ -25,9 +25,10 @@
 
 Use a patched, supported Node 24 LTS release for the bot and web server. Node 18
 and Node 20 are end-of-life and must not be used in production. The package's
-`engines` floor (18.17) records API compatibility only, **not security support**;
-this maintenance PR does not force an unknown hosting runtime to change at install.
-CI's pin does not update the deployed bot or web server. The hosting operator must
+`engines` floor is Node 24. Concurrently 10 is ESM-only, requires Node 22+, and its
+CLI dependency requires at least Node 22.12 within that major; the project uses
+Node 24 consistently rather than advertising the old Node 18 compatibility.
+CI's pin and the engine declaration do not update the deployed bot or web server. The hosting operator must
 verify both actual process versions, update them through their trusted deployment
 procedure, and check bot login plus the separate web health endpoint afterward.
 
