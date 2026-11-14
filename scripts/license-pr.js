@@ -36,6 +36,7 @@ export async function licensePullRequest({
   const updated = updateLicenseYear(source, year);
   if (source === updated) return { status: "unchanged" };
   const branch = `automation/license-year-${year}`;
+  if (branch === env.DEFAULT_BRANCH) throw new LicenseAutomationError("The license topic must differ from the default branch.");
   const prs = JSON.parse(run("gh", ["pr", "list", "--repo", repository, "--head", branch, "--base", env.DEFAULT_BRANCH,
     "--state", "all", "--limit", "100", "--json", "number,state,url"]));
   if (!Array.isArray(prs)) throw new LicenseAutomationError("Unable to establish existing license PR state.");

@@ -72,6 +72,15 @@ test("an unchanged year does not create a branch or request write operations", a
   assert.equal(f.calls.some(call => call.command === "gh"), false);
 });
 
+test("the annual topic can never equal a renamed default branch", async () => {
+  const f = fixture();
+  f.options.env.DEFAULT_BRANCH = "automation/license-year-2027";
+  f.options.env.GITHUB_REF = "refs/heads/automation/license-year-2027";
+  await assert.rejects(licensePullRequest(f.options));
+  assert.equal(f.calls.some(call => call.command === "gh" || call.args.includes("push")), false);
+  assert.equal(f.writes.length, 0);
+});
+
 test("the only push target is a new annual topic branch and creation requires a normal PR", async () => {
   const f = fixture();
   const result = await licensePullRequest(f.options);
