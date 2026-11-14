@@ -1,0 +1,4 @@
+# Require an independent existing maintainer, not an automated review account.
+# One of these owners is sufficient; both have explicit write-or-higher access.
+# This wildcard also protects CODEOWNERS and the workflows themselves.
+* @Nivmizz7 @Chica999
