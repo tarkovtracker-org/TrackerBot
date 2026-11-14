@@ -108,8 +108,9 @@ Do not fix that by trusting arbitrary forwarded headers. The deployed form origi
 must also match the existing `ALLOWED_ORIGINS` setting. Credential, proxy-trust and
 production configuration changes require separate approval.
 
-Use a **patched, supported Node.js 24 LTS** release in production. Node 18/20 are
-end-of-life. The package engine floor is API compatibility, not security support.
+Use a **patched, supported Node.js 24 LTS** release in production. The package
+requires Node 24+; Node 18/20 are unsupported. The exact CI patch is not a hosting
+upgrade: verify the deployed runtime before updating dependencies.
 See [maintenance and runtime policy](docs/MAINTENANCE.md).
 
 ## Features
