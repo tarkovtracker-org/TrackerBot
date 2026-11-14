@@ -1,4 +1,5 @@
 import { PermissionFlagsBits } from "discord.js";
+import { supportTicketTypes } from "./support.js";
 
 // Optional resource-sharing allowlist. Empty means any member who can post;
 // it is independent of administrative authorization (ADMIN_ROLE_ID).
@@ -45,6 +46,13 @@ export function getTicketStaffRoleIds() {
   return [...new Set(value.split(",").map(id => id.trim()))];
 }
 
+export function getSupportStaffRoleIds() {
+  // Also protect help-desk staff from self-service notification buttons.
+  return Object.values(supportTicketTypes).flatMap(({ prefix }) =>
+    (process.env[`${prefix}_STAFF_ROLE_IDS`] ?? "").split(",").map(value => value.trim()).filter(Boolean)
+  );
+}
+
 export function getNotificationRoleId(customId) {
   const name = reactionRoleNameMap[customId];
   return name ? process.env[`REACTION_ROLE_${name.toUpperCase()}_ID`]?.trim() || undefined : undefined;
@@ -66,7 +74,7 @@ export function isSafeNotificationRole(role, guildId) {
   return role.id !== guildId && role.guild?.id === guildId && role.name !== "@everyone" &&
     role.name.trim().toLowerCase() !== "discord admin" &&
     !role.managed && role.editable && !adminRoles.has(role.id) &&
-    !getTicketStaffRoleIds()?.includes(role.id) &&
+    !getTicketStaffRoleIds()?.includes(role.id) && !getSupportStaffRoleIds().includes(role.id) &&
     typeof role.permissions?.bitfield === "bigint" &&
     (role.permissions.bitfield & ~safeNotificationPermissions) === 0n;
 }
