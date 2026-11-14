@@ -398,6 +398,7 @@ for (const messageId of ["", "   "]) {
     const f = fixture({ actorRoles: [ids.admin] }); f.setMessageId(messageId);
     await executeSupport(f.interaction);
     assert.equal(f.publicMessages.length, 0);
+    assert.match(last(f), /nonblank message ID/);
     assert.match(last(f), /Nothing published/);
   });
 }
