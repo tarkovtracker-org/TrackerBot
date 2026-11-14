@@ -38,6 +38,15 @@ does not establish Gateway readiness. Multi-process rate limits/locks require an
 operator-approved shared store; do not silently run extra workers or evict active
 security budgets to increase capacity.
 
+## Repository protection and annual maintenance
+
+The license workflow prepares a reviewed topic-branch PR rather than pushing to
+the default branch. It stays disabled until the owner approves the Actions
+PR-creation setting and sets `LICENSE_PR_AUTOMATION_ENABLED=true`. No protection,
+bypass, credential, or repository-variable setting is changed by source tests.
+See [repository guards and the owner verification checklist](REPOSITORY-GUARDS.md)
+for the proposed review/check policy and automation-created CI approval behavior.
+
 ## Review and rollout
 
 Run `npm ci`, `npm test`, `npm run build` and `npm run audit:prod`. Require both CI

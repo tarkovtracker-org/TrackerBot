@@ -6,30 +6,38 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: annual-license-pr
+  cancel-in-progress: false
 
 jobs:
   update-license-year:
+    if: >-
+      github.repository == 'tarkovtracker-org/TrackerBot' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      vars.LICENSE_PR_AUTOMATION_ENABLED == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - name: Checkout
+      - name: Checkout trusted default-branch revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Update the year in LICENSE
-        run: |
-          year="$(date +%Y)"
-          # Matches "Copyright (c) 2025" or "Copyright (c) 2025-2026" and replaces
-          # the year portion with the current year.
-          sed -i -E "s/Copyright \(c\) [0-9]{4}(-[0-9]{4})? /Copyright (c) ${year} /" LICENSE
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.2"
 
-      - name: Commit and push if changed
-        run: |
-          if git diff --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add LICENSE
-          git commit -m "chore: update license year"
-          git push
+      - name: Prepare a reviewed license-only pull request
+        run: node scripts/license-pr.js
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          LICENSE_PR_AUTOMATION_ENABLED: ${{ vars.LICENSE_PR_AUTOMATION_ENABLED }}
