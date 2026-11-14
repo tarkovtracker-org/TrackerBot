@@ -1,24 +1,28 @@
 # Repository protection and annual license automation
 
-This document proposes the remaining owner-approved policy for issue #55. Source
-changes do not configure GitHub branch protection, rulesets, token settings, or
-repository variables. Do not close the issue until the effective server-side
-policy and its negative/positive checks are verified.
+The owner approved the following policy for issue #55. Source changes alone do
+not configure GitHub rulesets, token settings, or repository variables. Read back
+the effective server-side policy and record live verification on the issue; do
+not infer enforcement from this document or a passing source test.
 
-## Proposed default-branch policy (owner decision)
+## Approved default-branch policy
 
-- Require pull requests and one approving review on the current changes.
+- Require pull requests and one current approval from a designated maintainer.
+  `.github/CODEOWNERS` covers all paths, including itself and workflows, with
+  existing write-capable maintainers `@Nivmizz7` and `@Chica999`. Either may approve;
+  the author cannot approve their own PR. Automated review accounts are not owners.
+- Dismiss stale approvals on new commits, require approval of the last reviewable
+  push by someone other than its pusher, and resolve all review threads.
 - Require `check (ubuntu-latest)` and `check (windows-latest)` on an up-to-date
   branch; retain existing CodeQL, Socket, Snyk and code-review integrations.
 - Block force pushes and deletion of the default branch.
 - No broad administrator, automation, or organization-role bypass. Any exception
   requires a named owner-approved actor and a documented operational need.
-- Decide whether approval must be from a human/code owner rather than treating a
-  bot approval as equivalent. Do not silently promise human review when the
-  effective GitHub rule only counts generic approving reviews.
+- Bind the two required CI contexts to the GitHub Actions integration, rather than
+  accepting a same-named status from an unrelated app or account.
 
-After owner approval, configure the effective rule through GitHub's trusted UI/API
-and read it back. Verify an intentionally failing candidate is blocked and an
+Configure the effective rule through GitHub's trusted UI/API and read it back.
+Verify an intentionally failing candidate is blocked and an
 approved green candidate can merge; use an authorized disposable test PR, never
 weaken CI or execute an unapproved merge to test enforcement. Also verify the
 license workflow below cannot push directly to the protected default branch.
@@ -32,8 +36,11 @@ reused without force-pushing; unknown, closed, contaminated, or ambiguous branch
 state fails closed for owner inspection. Failed/unconfirmed writes are not retried
 automatically. Only the `LICENSE` file is staged and committed.
 
-The job is **disabled until the owner sets repository variable
-`LICENSE_PR_AUTOMATION_ENABLED=true`**. Its script independently enforces the same
+The approved rollout **leaves the job disabled**: license automation is not needed
+for bot operation or branch protection, and the license already contains the
+current year. Do not grant Actions PR-creation permissions merely to enable an
+unnecessary write path. A later opt-in uses repository variable
+`LICENSE_PR_AUTOMATION_ENABLED=true`. Its script independently enforces the same
 flag, expected repository, schedule/manual event, exact default-branch ref, clean
 checkout and trusted workflow revision. No pull-request/fork event can run its
 write path. Checkout is immutable and does not persist credentials; a scoped
