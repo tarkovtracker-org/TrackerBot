@@ -1,3 +1,5 @@
+import { ExpiryIndex } from "./expiry-index.js";
+
 export const REPORT_WINDOW_MS = 12 * 60 * 60 * 1000;
 export const REPORT_INTERVAL_MS = 10 * 60 * 1000;
 export const REPORT_LIMIT = 20;
@@ -16,23 +18,31 @@ function denied(code, message, resetAt, now) {
 // reservation before asynchronous delivery; there is no persistent store.
 export function createReportPolicy({ now = Date.now, maxClients = 10_000 } = {}) {
   const clients = new Map();
-  let lastSweep = -Infinity;
+  const expiries = new ExpiryIndex();
   function prune(state, time) {
     state.events = state.events.filter(event => event.time > time - REPORT_WINDOW_MS);
     state.attempts = state.attempts.filter(attempt => attempt > time - ATTEMPT_WINDOW_MS);
   }
-  function sweep(time, interval) {
-    if (time - lastSweep < interval) return;
-    lastSweep = time;
-    for (const [key, state] of clients) {
-      prune(state, time);
-      if (!state.pending && !state.events.length && !state.attempts.length) clients.delete(key);
+  function schedule(key, state) {
+    expiries.delete(key);
+    // Pending deliveries must never expire, even after a long network request.
+    if (state.pending) return;
+    if (!state.events.length && !state.attempts.length) {
+      clients.delete(key);
+      return;
     }
+    const reportsEnd = state.events.length ? state.events.at(-1).time + REPORT_WINDOW_MS : -Infinity;
+    const attemptsEnd = state.attempts.length ? state.attempts.at(-1) + ATTEMPT_WINDOW_MS : -Infinity;
+    expiries.set(key, Math.max(reportsEnd, attemptsEnd));
+  }
+  function sweep(time) {
+    let expired;
+    while ((expired = expiries.popExpired(time)) !== null) clients.delete(expired.key);
   }
   function stateFor(key, time) {
     // Reclaim expired entries promptly at capacity, but never evict an active
     // attempt budget, delivered allowance, pending reservation or uncertain hold.
-    sweep(time, clients.size >= maxClients ? 1000 : 60_000);
+    sweep(time);
     let state = clients.get(key);
     if (!state) {
       if (clients.size >= maxClients) {
@@ -71,7 +81,13 @@ export function createReportPolicy({ now = Date.now, maxClients = 10_000 } = {})
     if (state.ok === false) return state;
     const reportingBlock = blocked(state, time);
     const exhausted = state.attempts.length >= ATTEMPT_LIMIT;
-    if (!exhausted) state.attempts.push(time);
+    if (!exhausted) {
+      state.attempts.push(time);
+      // Date.now() may move backward. Keep earliest retries and latest expiry
+      // ordered by timestamps, not by insertion order (at most five attempts).
+      state.attempts.sort((left, right) => left - right);
+    }
+    schedule(key, state);
     // An eligible fifth attempt still passes. A rejected fifth attempt must
     // advertise the wait its newly exhausted attempt budget imposes on retry.
     return withAttemptWait(reportingBlock ?? (exhausted ? attemptBlock(state, time) : null), state, time) ?? { ok: true };
@@ -100,10 +116,17 @@ export function createReportPolicy({ now = Date.now, maxClients = 10_000 } = {})
     if (rejection) return withAttemptWait(rejection, state, time);
     const reservation = { time, fingerprint };
     state.pending = reservation;
+    schedule(key, state);
     return { ok: true, settle(outcome) {
       if (state.pending !== reservation) return;
       state.pending = null;
-      if (outcome !== "failed") state.events.push({ ...reservation, time: now(), outcome });
+      if (outcome !== "failed") {
+        state.events.push({ ...reservation, time: now(), outcome });
+        // A clock adjustment during delivery must not shorten any existing hold.
+        state.events.sort((left, right) => left.time - right.time);
+      }
+      prune(state, now());
+      schedule(key, state);
     } };
   }
   return { attempt, reserve };

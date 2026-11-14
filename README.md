@@ -88,9 +88,11 @@ and report descriptions are never included in error output or delivery logs.
 shared across workers/hosts.** A restart clears allowances, cooldowns,
 uncertain-report holds and the shared provider throttle. There is no existing
 persistent limiter store or hosting manifest in this repository. State is capped
-at 10,000 clients and stale entries are removed; at capacity, expiry cleanup runs
-at most once per second. New clients
-receive a safe busy response when the remaining entries still hold active limits;
+at 10,000 clients. A bounded expiry index holds at most one deadline per nonpending
+client and removes only fully expired clients at their exact eligibility boundary;
+new-key admission never scans active clients. Pending deliveries never expire, and
+failed deliveries release empty slots immediately without dropping active attempt
+budgets. New clients receive a safe busy response when remaining entries still hold active limits;
 active attempt budgets are not evicted to make room. Otherwise rotating keys could
 bypass the five-attempt allowance. Sustained traffic from 10,000 distinct active
 client keys can still exhaust this bounded table; operator-side abuse protection
