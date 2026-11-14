@@ -81,7 +81,12 @@ export function createReportPolicy({ now = Date.now, maxClients = 10_000 } = {})
     if (state.ok === false) return state;
     const reportingBlock = blocked(state, time);
     const exhausted = state.attempts.length >= ATTEMPT_LIMIT;
-    if (!exhausted) state.attempts.push(time);
+    if (!exhausted) {
+      state.attempts.push(time);
+      // Date.now() may move backward. Keep earliest retries and latest expiry
+      // ordered by timestamps, not by insertion order (at most five attempts).
+      state.attempts.sort((left, right) => left - right);
+    }
     schedule(key, state);
     // An eligible fifth attempt still passes. A rejected fifth attempt must
     // advertise the wait its newly exhausted attempt budget imposes on retry.
@@ -115,7 +120,11 @@ export function createReportPolicy({ now = Date.now, maxClients = 10_000 } = {})
     return { ok: true, settle(outcome) {
       if (state.pending !== reservation) return;
       state.pending = null;
-      if (outcome !== "failed") state.events.push({ ...reservation, time: now(), outcome });
+      if (outcome !== "failed") {
+        state.events.push({ ...reservation, time: now(), outcome });
+        // A clock adjustment during delivery must not shorten any existing hold.
+        state.events.sort((left, right) => left.time - right.time);
+      }
       prune(state, now());
       schedule(key, state);
     } };

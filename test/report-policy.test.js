@@ -182,6 +182,49 @@ test("pending delivery survives all expiries and failed settlement releases an e
   assert.equal(policy.attempt("other").ok, true);
 });
 
+test("backward clock jumps never expire a client while a later attempt remains live", () => {
+  const { policy, setTime } = fixture({ maxClients: 1 });
+  setTime(100000);
+  policy.attempt("active");
+  setTime(0);
+  for (let index = 0; index < 4; index++) policy.attempt("active");
+  assert.equal(policy.attempt("active").retryAfterSeconds, 60, "retry waits use the earliest actual attempt");
+  setTime(60000);
+  assert.equal(policy.attempt("other").code, "report_capacity");
+  setTime(160000);
+  assert.equal(policy.attempt("other").ok, true);
+});
+
+test("out-of-order delivery timestamps preserve every uncertain hold until its own expiry", () => {
+  const { policy, setTime } = fixture({ maxClients: 1 });
+  setTime(100000);
+  policy.reserve("active", "first").settle("uncertain");
+  setTime(700000);
+  const second = policy.reserve("active", "second");
+  assert.equal(second.ok, true);
+  setTime(0);
+  second.settle("uncertain");
+  setTime(43200000);
+  assert.equal(policy.attempt("other").code, "report_capacity");
+  assert.equal(policy.reserve("active", "first").code, "delivery_uncertain");
+  setTime(43300000);
+  assert.equal(policy.attempt("other").ok, true);
+});
+
+test("a clock rollback during delivery cannot shorten an earlier report's cooldown", () => {
+  const { policy, setTime } = fixture();
+  setTime(100000);
+  accept(policy, "first");
+  setTime(700000);
+  const second = policy.reserve("client", "second");
+  setTime(0);
+  second.settle("accepted");
+  setTime(600000);
+  const denied = policy.reserve("client", "third");
+  assert.equal(denied.code, "report_cooldown");
+  assert.equal(denied.retryAfterSeconds, 100);
+});
+
 test("cooldown starts at delivery completion rather than reservation", () => {
   const { policy, setTime } = fixture();
   const admission = policy.reserve("client", "first");
