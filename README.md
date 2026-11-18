@@ -199,6 +199,39 @@ npm run start:web   # Public issue forms (http://localhost:3000)
 - Bot login success is logged as soon as Discord authenticates the token.
 - `webserver.js` serves `http://localhost:3000` (issue portal), plus `http://localhost:3000/issue` and `http://localhost:3000/data` (forms).
 
+## Nikita's X feed
+
+TrackerBot can relay public posts by [Nikita Buyanov (@nikgeneburn)](https://x.com/nikgeneburn)
+to a dedicated Discord text channel. It polls every two minutes and includes replies
+and quotes. Plain reposts are skipped. Alerts show the original text, available image
+and video previews, X publish time, and a link. An English machine translation is
+shown alongside the original when available. Long text is included as a text attachment.
+
+Set the channel ID, X token, state file, and translator URL on one bot instance:
+
+- `NIKITA_X_CHANNEL_ID` is the destination channel. Give the bot View Channel, Send Messages,
+  Embed Links, Attach Files, and Read Message History.
+- `NIKITA_X_BEARER_TOKEN` is an X app-only token with User Lookup, User Posts timeline,
+  and Post Lookup access.
+- `NIKITA_X_STATE_FILE` is an absolute file path under an existing writable, persistent
+  directory. The file tracks post and Discord message IDs across restarts. Run one
+  feed instance at a time, including during deploys, and preserve this file. To use a
+  different destination, use a separate state file. Arrange continued removal checks
+  for alerts in the old channel or remove those alerts before switching.
+- `NIKITA_X_TRANSLATE_URL` is the HTTPS `/translate` URL for your LibreTranslate-compatible
+  service. Post text is sent there for translation when needed. Set
+  `NIKITA_X_TRANSLATE_API_KEY` if the service requires a key.
+
+The first successful poll records the latest post as a starting point. Subsequent polls
+resume from that point. Failed translations get retried after 15 minutes. The feed also
+rechecks previously relayed posts every 12 hours to apply edits and removals. These
+lookups use [X API read credits](https://docs.x.com/x-api/getting-started/pricing) as
+the tracked history grows. Check the app's credit and spending limits before enabling.
+Unset `NIKITA_X_CHANNEL_ID` and restart the bot to pause the feed. While rechecks are
+paused, a moderator with Manage Messages can locate the alert by its X link and
+delete it in Discord. Handle removal requests from X or the account owner within
+24 hours. See the [X Developer Policy](https://docs.x.com/developer-terms/policy#public-display-of-posts).
+
 ## Help desk
 
 The optional help desk provides three public-help routes and two private ticket
