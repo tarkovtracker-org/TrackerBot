@@ -7,7 +7,9 @@ import {
 } from "discord.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { hasAdminRole } from "../config/constants.js";
-import { destinations, getDestinationId, getDestinationOverride, withDestinationReadLock } from "../config/destinations.js";
+import { getAffectedBotFeatures, withDestinationReadLock } from "../config/destinations.js";
+
+export { getAffectedBotFeatures };
 
 const colors = {
   success: 0x4ade80,
@@ -17,16 +19,6 @@ const colors = {
 };
 
 const CONFIRM_TIMEOUT_MS = 15_000;
-
-// Returns human-readable feature names tied to a channel ID, so the confirm
-// warning can tell the admin exactly which bot features will break.
-export function getAffectedBotFeatures(channelId, guildId) {
-  return Object.entries(destinations).filter(([key]) => getDestinationId(guildId, key) === channelId)
-    .map(([key, { label, env }]) => {
-      const setting = getDestinationOverride(guildId, key) ? `/destinations set destination:${key}` : env;
-      return `${label.toLowerCase()} (${setting})`;
-    });
-}
 
 export async function executeNuke(interaction) {
   if (!hasAdminRole(interaction.member.roles.cache)) {

@@ -85,7 +85,7 @@ async function fixture(t) {
           const message = messages.get(id);
           assert.ok(message);
           message.embeds = payload.embeds.map(embed => embed.toJSON?.() ?? embed);
-          operations.push({ type: "edit", id, payload });
+          operations.push({ type: "edit", id, payload, channelId: channel.id });
           if (channel.loseEditResponse) throw new Error("Discord accepted the edit before the connection dropped");
         },
         async delete(id) {
@@ -188,7 +188,7 @@ test("a guild-only feed requires a destination store the server can write to", a
   const { env, config } = await fixture(t);
   delete env.NIKITA_X_CHANNEL_ID;
   env.NIKITA_X_GUILD_ID = guildId;
-  assert.throws(() => getNikitaXFeedConfig(env), /Invalid Nikita X feed/);
+  assert.throws(() => getNikitaXFeedConfig(env), /TRACKERBOT_DESTINATIONS_FILE/);
   env.TRACKERBOT_DESTINATIONS_FILE = config.stateFile + ".destinations";
   assert.equal(getNikitaXFeedConfig(env).guildId, guildId);
 });
@@ -202,7 +202,7 @@ test("feed state and Discord settings cannot alias the same file through a paren
   await symlink(actual, alias, "junction");
   env.NIKITA_X_STATE_FILE = join(actual, "feed.json");
   env.TRACKERBOT_DESTINATIONS_FILE = join(alias, "feed.json");
-  assert.throws(() => getNikitaXFeedConfig(env), /Invalid Nikita X feed/);
+  assert.throws(() => getNikitaXFeedConfig(env), /NIKITA_X_STATE_FILE and TRACKERBOT_DESTINATIONS_FILE/);
   env.TRACKERBOT_DESTINATIONS_FILE = join(alias, "destinations.json");
   assert.equal(getNikitaXFeedConfig(env).stateFile, env.NIKITA_X_STATE_FILE);
 });
@@ -725,6 +725,7 @@ test("inaccessible pending recovery survives a restart and does not block newer 
   assert.equal(feed.messages.size, 1);
   assert.equal(feed.alternateMessages.size, 1);
   assert.deepEqual(feed.operations.map(operation => operation.type), ["send", "send", "edit"]);
+  assert.equal(feed.operations.at(-1).channelId, channelId);
 });
 
 test("a retired receipt can retry a timeline edit after later posts are sent", async t => {

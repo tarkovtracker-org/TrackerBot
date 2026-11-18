@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags
 import { adminRoles, hasAdminRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { noMentions } from "../utils/messageReply.js";
-import { getDestinationId, withDestinationReadLock } from "../config/destinations.js";
+import { getAffectedBotFeatures, getDestinationId, withDestinationReadLock } from "../config/destinations.js";
 
 function archiveCategory(guildId, channels) {
   const id = getDestinationId(guildId, "archive");
@@ -31,10 +31,13 @@ export async function executeArchive(interaction) {
     }
     const confirmId = `archive_channel:${interaction.id}`;
     const cancelId = `cancel_archive:${interaction.id}`;
+    const affectedFeatures = getAffectedBotFeatures(interaction.channelId, guild.id);
+    const warning = affectedFeatures.length
+      ? `\n\n⚠️ TrackerBot uses this channel for ${affectedFeatures.join(", ")}. Archiving it can interrupt access or delivery.` : "";
     const preview = await interaction.editReply({
       embeds: [createCardEmbed({
         title: "Archive for staff review?",
-        description: "This will move the channel and **replace its permission overwrites** so only configured admin roles and the bot can view it. Discord administrators always retain access.\n\nHistory is kept; nothing is deleted. Existing private thread memberships are not revoked. Record original permissions before archiving if you may need to restore them. The bot does not save previous overwrites. Audit logs are only a limited aid, not a permission backup."
+        description: "This will move the channel and **replace its permission overwrites** so only configured admin roles and the bot can view it. Discord administrators always retain access.\n\nHistory is kept; nothing is deleted. Existing private thread memberships are not revoked. Record original permissions before archiving if you may need to restore them. The bot does not save previous overwrites. Audit logs are only a limited aid, not a permission backup." + warning
       })],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(confirmId).setLabel("Archive privately").setStyle(ButtonStyle.Danger),
@@ -72,6 +75,9 @@ export async function executeArchive(interaction) {
       }
       const member = await guild.members.fetch({ user: interaction.user.id, force: true });
       if (!hasAdminRole(member.roles.cache)) return "Your admin access has changed. Nothing changed.";
+      if (JSON.stringify(getAffectedBotFeatures(channel.id, guild.id)) !== JSON.stringify(affectedFeatures)) {
+        return "The bot destinations for this channel changed. Open a new preview.";
+      }
       // One atomic channel edit: never inherit a public category's overwrites.
       await channel.edit({
         parent: current.id,

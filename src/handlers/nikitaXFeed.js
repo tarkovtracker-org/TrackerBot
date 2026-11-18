@@ -452,8 +452,8 @@ export function setupNikitaXFeed(client) {
   let config;
   try {
     config = getNikitaXFeedConfig();
-  } catch {
-    console.error("Nikita X feed configuration is invalid. Check the NIKITA_X_* settings.");
+  } catch (error) {
+    console.error(error.message);
     return;
   }
   if (!config) return;

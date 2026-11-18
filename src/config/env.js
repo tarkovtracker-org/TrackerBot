@@ -47,15 +47,17 @@ export function getNikitaXFeedConfig(env = process.env) {
   const translateUrl = URL.parse(env.NIKITA_X_TRANSLATE_URL?.trim() ?? "");
   if ((channelId && !/^\d{17,20}$/.test(channelId)) || (guildId && !/^\d{17,20}$/.test(guildId))
       || !bearerToken || !stateFile || !isAbsolute(stateFile)
-      || (!channelId && !destinationsFile) || (destinationsFile && !isAbsolute(destinationsFile))
       || translateUrl?.protocol !== "https:" || translateUrl.username || translateUrl.password
       || translateUrl.search || translateUrl.hash) {
-    throw new Error("Invalid Nikita X feed configuration");
+    throw new Error("Invalid Nikita X feed configuration. Check the NIKITA_X_* settings.");
+  }
+  if ((!channelId && !destinationsFile) || (destinationsFile && !isAbsolute(destinationsFile))) {
+    throw new Error("Invalid Nikita X feed configuration. Set TRACKERBOT_DESTINATIONS_FILE to an absolute path.");
   }
   try {
     if (destinationsFile && canonicalStatePath(destinationsFile) === canonicalStatePath(stateFile)) throw new Error();
   } catch {
-    throw new Error("Invalid Nikita X feed configuration");
+    throw new Error("Invalid Nikita X feed configuration. NIKITA_X_STATE_FILE and TRACKERBOT_DESTINATIONS_FILE must use separate files in existing directories.");
   }
 
   return { channelId, guildId, bearerToken, stateFile, translateUrl, translateKey: env.NIKITA_X_TRANSLATE_API_KEY?.trim() };

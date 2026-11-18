@@ -185,6 +185,22 @@ test("simultaneous writes retain both changes and X settings stay in the host-en
   assert.deepEqual(saved.guilds[guildId], { welcome: welcome.id, "support-tracker": help.id });
 });
 
+test("ticket category moves prune deleted history and preserve surviving historical tickets", async t => {
+  const bot = await fixture(t);
+  const old = bot.addChannel(asId(1), ChannelType.GuildCategory);
+  const active = bot.addChannel(asId(2), ChannelType.GuildCategory);
+  const next = bot.addChannel(asId(3), ChannelType.GuildCategory);
+  const surviving = bot.addChannel(asId(4), ChannelType.GuildText, { parentId: old.id });
+  const deleted = asId(5);
+  await updateDestination(guildId, "support-account", active.id,
+    () => ({ categoryId: old.id, ticketIds: [surviving.id, deleted] }));
+  assert.equal(getPreviousTicketParent(guildId, "support-account", deleted), old.id);
+  assert.match(await bot.run("set", "support-account", next), new RegExp(next.id));
+  await initializeDestinations(bot.path);
+  assert.equal(getPreviousTicketParent(guildId, "support-account", deleted), undefined);
+  assert.equal(getPreviousTicketParent(guildId, "support-account", surviving.id), old.id);
+});
+
 test("honeypot enforcement follows the new channel without restarting the bot", async t => {
   const bot = await fixture(t);
   t.mock.method(console, "log", () => {});

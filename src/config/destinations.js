@@ -112,6 +112,14 @@ export async function initializeDestinations(path = process.env.TRACKERBOT_DESTI
 export const canConfigureDestinations = () => Boolean(file);
 export const getDestinationOverride = (guildId, key) => settings[guildId]?.[key];
 export const getDestinationId = (guildId, key) => getDestinationOverride(guildId, key) ?? process.env[destinations[key].env]?.trim();
+export function getAffectedBotFeatures(channelId, guildId) {
+  return Object.entries(destinations).filter(([key]) => getDestinationId(guildId, key) === channelId)
+    .map(([key, { label, env }]) => {
+      const setting = getDestinationOverride(guildId, key) ? `/destinations set destination:${key}` : env;
+      return `${label.toLowerCase()} (${setting})`;
+    });
+}
+
 export const getPreviousTicketParent = (guildId, key, channelId) => previousTickets[guildId]?.[key]?.[channelId];
 export const getPreviousTickets = (guildId, key) => Object.entries(previousTickets[guildId]?.[key] ?? {});
 export function getHoneypotCutoff(guildId, channelId) {
@@ -143,12 +151,15 @@ export function updateDestination(guildId, key, channelId, validate) {
             activations[guildId] = { channelId: activeId, startedAt: Date.now() };
           }
         }
-        if (ticketDestinationKeys.has(key) && previous?.ticketIds.length) {
+        if (ticketDestinationKeys.has(key) && previous) {
           const guildHistory = { ...history[guildId] };
-          guildHistory[key] = {
-            ...guildHistory[key], ...Object.fromEntries(previous.ticketIds.map(id => [id, previous.categoryId]))
-          };
-          history[guildId] = guildHistory;
+          const retained = Object.entries(guildHistory[key] ?? {})
+            .filter(([id]) => !previous.liveChannelIds || previous.liveChannelIds.has(id));
+          const added = (previous.ticketIds ?? []).map(id => [id, previous.categoryId]);
+          if (retained.length || added.length) guildHistory[key] = Object.fromEntries([...retained, ...added]);
+          else delete guildHistory[key];
+          if (Object.keys(guildHistory).length) history[guildId] = guildHistory;
+          else delete history[guildId];
         }
         const guilds = { ...settings };
         if (Object.keys(next).length) guilds[guildId] = next;

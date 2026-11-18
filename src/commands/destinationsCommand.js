@@ -140,13 +140,14 @@ export async function executeDestinations(interaction) {
           throw new DestinationError("Account and moderation tickets require separate categories.");
         }
       }
-      if (previous?.type !== ChannelType.GuildCategory || previous.id === configured[key]) return;
+      const liveChannelIds = new Set(channels.keys());
+      if (previous?.type !== ChannelType.GuildCategory || previous.id === configured[key]) return { liveChannelIds };
       const ticketIds = [...channels.values()].filter(channel => {
         if (channel?.type !== ChannelType.GuildText || channel.parentId !== previous.id) return false;
         if (["tickets", "support-account"].includes(key) && /^Ticket for \d{17,20}$/.test(channel.topic ?? "")) return true;
         return `support-${parseTicketTopic(channel.topic)?.type}` === key;
       }).map(channel => channel.id);
-      return { categoryId: previous.id, ticketIds };
+      return { categoryId: previous.id, ticketIds, liveChannelIds };
     });
     let content = id ? `${label} now uses <#${id}>.` : restoredChannel ? `${label} now uses the host default <#${restoredChannel}>.`
       : `${label} reset. ${unavailableDefault ? "The host default is unavailable in this server." : "No host default is set."}`;

@@ -11,7 +11,7 @@ import { getResourceLinks } from "../src/config/resources.js";
 import { messageReference } from "../src/utils/messageReply.js";
 import { handleChatInputCommand } from "../src/interactions/slashHandlers.js";
 
-const envNames = ["TT_SITE_URL", "TT_RESOURCES_URL", "ARCHIVE_CATEGORY_ID"];
+const envNames = ["TT_SITE_URL", "TT_RESOURCES_URL", "ARCHIVE_CATEGORY_ID", "WELCOME_CHANNEL_ID"];
 const originalEnv = Object.fromEntries(envNames.map(name => [name, process.env[name]]));
 const originalAdmins = [...adminRoles];
 const originalAllowed = [...allowedCommandRoles];
@@ -310,6 +310,20 @@ test("archive rechecks the requester after waiting for a destination write", asy
   await Promise.all([update, archiving]);
   assert.equal(f.channelEdits.length, 0);
   assert.match(f.edits.at(-1).content, /admin access has changed/);
+});
+
+test("archive previews affected bot destinations and aborts if they change before editing", async () => {
+  process.env.WELCOME_CHANNEL_ID = channelId;
+  const f = fixture("channel", { action: "archive" });
+  const fetch = f.interaction.guild.members.fetch;
+  f.interaction.guild.members.fetch = async input => {
+    delete process.env.WELCOME_CHANNEL_ID;
+    return fetch(input);
+  };
+  await run(f);
+  assert.match(f.edits[0].embeds[0].toJSON().description, /welcome messages \(WELCOME_CHANNEL_ID\)/);
+  assert.match(f.edits.at(-1).content, /bot destinations for this channel changed/);
+  assert.equal(f.channelEdits.length, 0);
 });
 
 test("two overlapping channel operations cannot both open or mutate; the lock releases afterward", async () => {
