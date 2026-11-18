@@ -215,7 +215,8 @@ Set the channel ID, X token, state file, and translator URL on one bot instance:
 - `NIKITA_X_STATE_FILE` is an absolute file path under an existing writable, persistent
   directory. The file tracks post and Discord message IDs across restarts. Run one
   feed instance at a time, including during deploys, and preserve this file. To use a
-  different destination, use a separate state file.
+  different destination, use a separate state file. Arrange continued removal checks
+  for alerts in the old channel or remove those alerts before switching.
 - `NIKITA_X_TRANSLATE_URL` is the HTTPS `/translate` URL for your LibreTranslate-compatible
   service. Post text is sent there for translation when needed. Set
   `NIKITA_X_TRANSLATE_API_KEY` if the service requires a key.

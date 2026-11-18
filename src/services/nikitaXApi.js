@@ -57,7 +57,8 @@ function readPosts(response) {
 function unavailableIds(response) {
   return new Set((response.errors ?? []).filter(error =>
     ["post", "tweet"].includes(error.resource_type)
-    && /^https:\/\/(?:api\.)?(?:twitter|x)\.com\/2\/problems\/(?:resource-not-found|not-authorized-for-resource|resource-unavailable)$/.test(error.type))
+    && (error.type === undefined && error.title === "Not Found Error"
+      || /^https:\/\/(?:api\.)?(?:twitter|x)\.com\/2\/problems\/(?:resource-not-found|not-authorized-for-resource|resource-unavailable)$/.test(error.type)))
     .map(error => error.resource_id ?? error.value));
 }
 
@@ -72,8 +73,12 @@ function indexLookup(response) {
   return byId;
 }
 
-export function createNikitaXApi(bearerToken, fetchImpl, now) {
-  async function get(path, params) {
+export function createNikitaXApi(bearerToken, fetchImpl, now, holds) {
+  async function get(path, params, { endpoint = path, allowMissing = false } = {}) {
+    const held = holds.get(endpoint);
+    if (held?.retryAt > now()) throw held;
+    holds.delete(endpoint);
+
     const url = new URL(path, "https://api.x.com");
     url.search = new URLSearchParams(params);
     const response = await fetchImpl(url, {
@@ -82,8 +87,13 @@ export function createNikitaXApi(bearerToken, fetchImpl, now) {
       signal: AbortSignal.timeout(15_000)
     });
     if (!response.ok) {
-      const retryAt = response.status === 429 || response.status === 503 ? retryTime(response.headers, now()) : 0;
-      throw xError("X request failed", `X_HTTP_${response.status}`, retryAt);
+      if (response.status === 404 && allowMissing) return null;
+      const time = now();
+      let retryAt = response.status === 429 || response.status === 503 ? retryTime(response.headers, time) : 0;
+      if (response.status === 429 && retryAt <= time) retryAt = time + 120_000;
+      const error = xError("X request failed", `X_HTTP_${response.status}`, retryAt);
+      if (retryAt > time) holds.set(endpoint, error);
+      throw error;
     }
     return response.json();
   }
@@ -123,7 +133,13 @@ export function createNikitaXApi(bearerToken, fetchImpl, now) {
   }
 
   async function lookup(ids) {
-    const fetchIds = async values => indexLookup(await get("/2/tweets", { ...postQuery, ids: values.join(",") }));
+    async function fetchIds(values) {
+      if (values.length > 1) return indexLookup(await get("/2/tweets", { ...postQuery, ids: values.join(",") }));
+      const [id] = values;
+      const single = await get(`/2/tweets/${id}`, postQuery, { endpoint: "/2/tweets/:id", allowMissing: true });
+      if (!single) return new Map([[id, null]]);
+      return indexLookup({ ...single, data: single.data ? [single.data] : [] });
+    }
     const requested = new Map();
     const initial = await fetchIds(ids);
     for (const id of ids) requested.set(id, initial.get(id));

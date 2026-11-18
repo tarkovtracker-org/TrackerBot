@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import fs, { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ChannelType } from "discord.js";
+import { ChannelType, PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import { getNikitaXFeedConfig } from "../src/config/env.js";
 import { pollNikitaXFeed } from "../src/handlers/nikitaXFeed.js";
 
@@ -17,10 +18,6 @@ const extraImage = "https://pbs.twimg.com/media/rack.jpg";
 
 function post(offset, values = {}) {
   return { id: xId(offset), text: "Hello from X", created_at: new Date(time + offset).toISOString(), lang: "en", ...values };
-}
-
-function missing(id) {
-  return { type: "https://api.x.com/2/problems/resource-not-found", resource_type: "post", resource_id: id };
 }
 
 async function fixture(t) {
@@ -37,12 +34,18 @@ async function fixture(t) {
   const operations = [];
   const messages = new Map();
   const calls = [];
+  const endpointHolds = new Map();
   let currentTime = time + 1000;
   let nextMessage = 100000000000000003n;
   const channel = {
     type: ChannelType.GuildText,
     guild: { members: { async fetchMe({ force }) { assert.equal(force, true); return { fresh: true }; } } },
-    permissionsFor: member => ({ has: () => !(member.fresh && channel.hideHistory) }),
+    permissionsFor(member) {
+      const permissions = new PermissionsBitField(PermissionsBitField.All).remove(PermissionFlagsBits.Administrator);
+      if (member.fresh && channel.hideHistory) permissions.remove(PermissionFlagsBits.ReadMessageHistory);
+      if (channel.noAttachments) permissions.remove(PermissionFlagsBits.AttachFiles);
+      return permissions;
+    },
     async send(payload) {
       nextMessage++;
       const id = nextMessage.toString();
@@ -58,6 +61,10 @@ async function fixture(t) {
     messages: {
       async fetch({ before, limit, message }) {
         if (message) return messages.get(message);
+        if (channel.restoreHistoryAfterRead) {
+          channel.restoreHistoryAfterRead = false;
+          return new Map();
+        }
         if (channel.hideHistory) return new Map();
         return new Map([...messages].reverse().filter(([id]) => !before || id < before).slice(0, limit));
       },
@@ -92,12 +99,13 @@ async function fixture(t) {
     read: async () => JSON.parse(await readFile(config.stateFile, "utf8")),
     async poll() {
       await pollNikitaXFeed(client, config, {
+        endpointHolds,
         now: () => currentTime,
         async fetchImpl(url, options) {
           calls.push({ url, options });
           assert.equal(options.redirect, "error");
           if (url.origin === config.translateUrl.origin) {
-            assert.equal(options.headers.Authorization, undefined);
+            assert.equal(new Headers(options.headers).has("authorization"), false);
             const result = await feed.translate(JSON.parse(options.body));
             return result instanceof Response ? result : Response.json(result);
           }
@@ -114,8 +122,14 @@ async function fixture(t) {
               const result = await feed.lookup(url.searchParams.get("ids").split(","));
               return result instanceof Response ? result : Response.json(result);
             }
-            default:
+            default: {
+              if (url.pathname.startsWith("/2/tweets/")) {
+                const result = await feed.lookup([url.pathname.split("/").at(-1)]);
+                if (result instanceof Response) return result;
+                return Response.json({ ...result, data: result.data?.[0] });
+              }
               assert.fail(`Unexpected URL: ${url}`);
+            }
           }
         }
       });
@@ -152,15 +166,16 @@ test("seeds without backfill, paginates oldest first and mirrors replies, quotes
   await feed.seed();
   const reply = post(2, {
     text: "Обновление сегодня. #Tarkov", lang: "ru",
-    referenced_posts: [{ type: "replied_to", id: xId(0) }],
+    referenced_tweets: [{ type: "replied_to", id: xId(0) }],
     attachments: { media_keys: ["photo_1", "photo_2", "wrong_origin"] }
   });
   const repost = post(3, { referenced_tweets: [{ type: "retweeted", id: xId(0) }] });
-  const quote = post(4, { referenced_posts: [{ type: "quoted", id: xId(0) }] });
+  const quote = post(4, { referenced_tweets: [{ type: "quoted", id: xId(0) }] });
   feed.timeline = params => {
     assert.equal(params.get("since_id"), xId(1));
     assert.equal(params.get("exclude"), "retweets");
-    assert.match(params.get("tweet.fields"), /created_at.*note_tweet.*referenced_tweets/);
+    const fields = params.get("tweet.fields").split(",");
+    for (const field of ["created_at", "note_tweet", "referenced_tweets"]) assert.ok(fields.includes(field));
     assert.equal(params.get("expansions"), "attachments.media_keys");
     if (!params.has("pagination_token")) return { data: [quote, repost], meta: { next_token: "next-page" } };
     assert.equal(params.get("pagination_token"), "next-page");
@@ -202,7 +217,8 @@ test("publishes hashtag-only posts without translation and attaches full long-fo
   await feed.seed();
   const text = "Full text. ".repeat(700);
   feed.timeline = () => ({ data: [
-    post(2, { lang: "qme", text: "#untarcontrol https://t.co/synthetic", attachments: { media_keys: ["photo"] } }),
+    post(2, { lang: "qme", text: "#untarcontrol https://t.co/synthetic", attachments: { media_keys: ["photo"] },
+      referenced_posts: [{ type: "quoted", id: xId(0) }] }),
     post(3, { text: "Truncated text", note_tweet: { text } })
   ], includes: { media: [{ media_key: "photo", type: "photo", url: image }] } });
   await feed.poll();
@@ -245,23 +261,29 @@ test("translation failure delivers the original and updates the same message whe
 test("recovers a Discord send with a lost receipt after restarting without another send", async t => {
   const feed = await fixture(t);
   await feed.seed();
-  const entry = post(2);
+  const history = [xId(2), xId(3)];
+  const entry = post(2, { edit_history_post_ids: history });
+  const revision = post(3, { edit_history_post_ids: history, attachments: { media_keys: ["photo"] } });
   feed.timeline = () => ({ data: [entry] });
+  feed.lookup = () => ({ data: [revision], includes: { media: [{ media_key: "photo", type: "photo", url: image }] } });
   feed.channel.loseResponse = true;
   await assert.rejects(feed.poll(), /connection dropped/);
   assert.equal((await feed.read()).sinceId, xId(1));
   assert.equal((await feed.read()).pending.id, entry.id);
+  assert.equal((await feed.read()).pending.versionId, revision.id);
 
   feed.advance(20 * 60_000); // Past Discord's short nonce de-duplication window.
   feed.channel.loseResponse = false;
-  feed.lookup = () => ({ data: [entry] });
+  feed.lookup = () => ({ data: [revision] });
   feed.channel.hideHistory = true;
   await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
   assert.equal((await feed.read()).pending.id, entry.id);
   assert.equal(feed.operations.length, 1);
   feed.channel.hideHistory = false;
+  feed.channel.restoreHistoryAfterRead = true;
   await feed.poll();
   assert.deepEqual(feed.operations.map(operation => operation.type), ["send", "edit"]);
+  assert.equal(feed.operations[1].payload.embeds[0].toJSON().image.url, image);
   const checkpoint = await feed.read();
   assert.equal(checkpoint.sinceId, entry.id);
   assert.equal(checkpoint.pending, null);
@@ -292,8 +314,9 @@ test("refetches edited content, preserves the original timestamp and removes con
   feed.lookup = () => ({ errors: [{ type: "https://api.x.com/2/problems/internal-error" }] });
   await assert.rejects(feed.poll(), /Incomplete X post lookup/);
   assert.equal(feed.operations.length, 2);
-  feed.lookup = ids => ({ errors: [missing(ids[0])] });
+  feed.lookup = ids => ({ errors: [{ resource_type: "tweet", resource_id: ids[0], title: "Not Found Error" }] });
   feed.timeline = () => new Response(null, { status: 503 });
+  feed.channel.noAttachments = true;
   await assert.rejects(feed.poll(), { code: "X_HTTP_503" });
   assert.deepEqual(feed.operations.at(-1), { type: "delete", id: sent.id });
   assert.deepEqual((await feed.read()).published, {});
@@ -337,7 +360,7 @@ test("a failing lookup batch leaves later reviews independent and records only s
   for (let offset = 2; offset <= 102; offset++) {
     state.published[xId(offset)] = {
       versionId: xId(offset), messageId: String(100000000000000000n + BigInt(offset)),
-      retryTranslationAt: 0, nextReviewAt: feed.time
+      mediaComplete: true, retryTranslationAt: 0, nextReviewAt: feed.time
     };
   }
   await writeFile(feed.config.stateFile, JSON.stringify(state));
@@ -353,4 +376,77 @@ test("a failing lookup batch leaves later reviews independent and records only s
   assert.equal(checkpoint.published[xId(102)].nextReviewAt, feed.time + 12 * 60 * 60_000);
   await assert.rejects(feed.poll(), { code: "X_HTTP_503" });
   assert.deepEqual(batches.map(batch => batch.length), [100, 1, 100]);
+});
+
+test("a later lookup adds missing previews to the same English post", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const entry = post(2, { attachments: { media_keys: ["photo"] } });
+  feed.timeline = () => ({ data: [entry] });
+  await feed.poll();
+  assert.equal(feed.operations[0].payload.embeds[0].toJSON().image, undefined);
+
+  feed.advance(12 * 60 * 60_000);
+  feed.lookup = () => ({ data: [entry], includes: { media: [{ media_key: "photo", type: "photo", url: image }] } });
+  await feed.poll();
+  const [sent, edited] = feed.operations;
+  assert.equal(edited.id, sent.id);
+  assert.equal(edited.payload.embeds[0].toJSON().image.url, image);
+  assert.equal((await feed.read()).published[entry.id].mediaComplete, true);
+});
+
+test("pending delivery and review share a lookup rate limit and a definite 404 clears pending", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const original = post(2);
+  const pending = post(3);
+  feed.timeline = () => ({ data: [original] });
+  await feed.poll();
+
+  feed.advance(12 * 60 * 60_000);
+  const state = await feed.read();
+  state.pending = { id: pending.id, versionId: pending.id, sourceId: pending.id, startedAt: feed.time };
+  await writeFile(feed.config.stateFile, JSON.stringify(state));
+  let lookups = 0;
+  feed.lookup = () => {
+    lookups++;
+    return new Response(null, { status: 429, headers: { "Retry-After": "30" } });
+  };
+  await assert.rejects(feed.poll(), { code: "X_HTTP_429" });
+  await assert.rejects(feed.poll(), { code: "X_HTTP_429" });
+  assert.equal(lookups, 1);
+  assert.equal((await feed.read()).pending.id, pending.id);
+
+  feed.advance(30_000);
+  feed.lookup = ([id]) => id === pending.id ? new Response(null, { status: 404 }) : { data: [original] };
+  feed.timeline = () => ({ data: [post(4)] });
+  await feed.poll();
+  assert.equal((await feed.read()).pending, null);
+  assert.equal((await feed.read()).sinceId, xId(4));
+  assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [original.id, xId(4)]);
+});
+
+test("a transient Windows sharing violation does not lose the delivery receipt", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const rename = fs.rename;
+  let writes = 0;
+  t.mock.method(fs, "rename", async (from, to) => {
+    if (to === feed.config.stateFile && ++writes === 2) {
+      throw Object.assign(new Error("Synthetic sharing violation"), { code: "EPERM" });
+    }
+    await rename(from, to);
+  });
+  syncBuiltinESMExports();
+  try {
+    const entry = post(2);
+    feed.timeline = () => ({ data: [entry] });
+    await feed.poll();
+    assert.equal(writes, 3);
+    assert.equal((await feed.read()).published[entry.id].messageId, feed.operations[0].id);
+    assert.equal((await feed.read()).pending, null);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });

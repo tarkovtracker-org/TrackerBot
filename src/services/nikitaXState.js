@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { isPostId } from "./nikitaXApi.js";
 
 const isTime = value => Number.isSafeInteger(value) && value >= 0;
@@ -26,9 +27,10 @@ export async function loadNikitaXState(file, channelId) {
       || (state.sinceId !== null && !isPostId(state.sinceId))
       || !state.published || Array.isArray(state.published) || typeof state.published !== "object"
       || !Object.entries(state.published).every(([id, item]) => isPostId(id) && isMessageId(item?.messageId)
-        && isPostId(item.versionId) && isTime(item.retryTranslationAt) && isTime(item.nextReviewAt))
+        && isPostId(item.versionId) && typeof item.mediaComplete === "boolean"
+        && isTime(item.retryTranslationAt) && isTime(item.nextReviewAt))
       || (state.pending !== null && (!isPostId(state.pending?.id) || !isPostId(state.pending.sourceId)
-        || !isTime(state.pending.startedAt)))) {
+        || !isPostId(state.pending.versionId) || !isTime(state.pending.startedAt)))) {
     throw stateError();
   }
   return state;
@@ -38,7 +40,16 @@ export async function saveNikitaXState(file, state) {
   const temporaryFile = `${file}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporaryFile, JSON.stringify(state), { flag: "wx", mode: 0o600, flush: true });
-    await rename(temporaryFile, file);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(temporaryFile, file);
+        break;
+      } catch (error) {
+        // A concurrent reader can briefly prevent replacement on Windows.
+        if (attempt === 4 || !["EPERM", "EBUSY", "EACCES"].includes(error.code)) throw error;
+        await delay(25 * 2 ** attempt);
+      }
+    }
   } finally {
     await unlink(temporaryFile).catch(() => {});
   }

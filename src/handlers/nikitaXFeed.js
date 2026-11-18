@@ -8,12 +8,10 @@ import { noMentions } from "../utils/messageReply.js";
 const pollInterval = 120_000;
 const reviewInterval = 12 * 60 * 60_000;
 const translationRetryInterval = 15 * 60_000;
-const requiredPermissions = [
-  PermissionFlagsBits.ViewChannel,
+const publishingPermissions = [
   PermissionFlagsBits.SendMessages,
   PermissionFlagsBits.EmbedLinks,
-  PermissionFlagsBits.AttachFiles,
-  PermissionFlagsBits.ReadMessageHistory
+  PermissionFlagsBits.AttachFiles
 ];
 
 const postUrl = id => `https://x.com/${nikitaHandle}/status/${id}`;
@@ -114,7 +112,9 @@ async function getDestination(client, channelId, { verifyHistory = false } = {})
   const channel = await client.channels.fetch(channelId, { force: verifyHistory });
   if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) throw channelError();
   const member = verifyHistory ? await channel.guild.members.fetchMe({ force: true }) : client.user;
-  if (!channel.permissionsFor(member)?.has(requiredPermissions)) throw channelError();
+  const permissions = channel.permissionsFor(member);
+  if (!permissions?.has(PermissionFlagsBits.ViewChannel)
+      || verifyHistory && !permissions.has(PermissionFlagsBits.ReadMessageHistory)) throw channelError();
   return channel;
 }
 
@@ -140,9 +140,9 @@ async function retainPreviews(channel, post, messageId) {
   }
 }
 
-export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now = Date.now, runPhase } = {}) {
+export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now = Date.now, runPhase, endpointHolds = new Map() } = {}) {
   const channel = await getDestination(client, config.channelId);
-  const x = createNikitaXApi(config.bearerToken, fetchImpl, now);
+  const x = createNikitaXApi(config.bearerToken, fetchImpl, now, endpointHolds);
   const load = () => loadNikitaXState(config.stateFile, config.channelId);
   const save = state => saveNikitaXState(config.stateFile, state);
   const errors = [];
@@ -155,11 +155,12 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
   });
 
   async function publish(post, existing) {
+    if (!channel.permissionsFor(client.user)?.has(publishingPermissions)) throw channelError();
     const messageId = existing?.id;
     const needsPreviews = messageId && !post.mediaComplete && existing.versionId === post.id;
     const displayPost = needsPreviews ? await retainPreviews(channel, post, messageId) : post;
     const { payload, retryTranslationAt } = await makeMessage(displayPost, config, fetchImpl, now);
-    const receipt = { versionId: post.id, retryTranslationAt, nextReviewAt: now() + reviewInterval };
+    const receipt = { versionId: post.id, mediaComplete: post.mediaComplete, retryTranslationAt, nextReviewAt: now() + reviewInterval };
     if (messageId) {
       return await syncMessage(channel, messageId, payload) ? { messageId, ...receipt } : null;
     }
@@ -176,7 +177,8 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
 
     const versionOrder = comparePostIds(post.id, record.versionId);
     if (versionOrder < 0) throw lookupError();
-    if (versionOrder > 0 || record.retryTranslationAt && record.retryTranslationAt <= now()) {
+    const mediaAvailable = !record.mediaComplete && post.mediaComplete;
+    if (versionOrder > 0 || mediaAvailable || record.retryTranslationAt && record.retryTranslationAt <= now()) {
       const receipt = await publish(post, { id: record.messageId, versionId: record.versionId });
       if (receipt) state.published[sourceId] = receipt;
       else delete state.published[sourceId];
@@ -194,13 +196,17 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     }
 
     if (state.pending) {
-      const { id, sourceId } = state.pending;
-      const post = checkedPost((await x.lookup([id])).get(id), sourceId);
-      const existing = await findPendingMessage(channel, client.user.id, state.pending);
-      // Discord can return an empty history when access is lost. Recheck permissions before trusting that result.
-      if (!existing) await getDestination(client, config.channelId, { verifyHistory: true });
+      const { id, sourceId, versionId } = state.pending;
+      const post = checkedPost((await x.lookup([versionId])).get(versionId), sourceId);
+      let existing = await findPendingMessage(channel, client.user.id, state.pending);
+      if (!existing) {
+        // Discord can return empty history without Read Message History. Search again with fresh permissions.
+        const fresh = await getDestination(client, config.channelId, { verifyHistory: true });
+        existing = await findPendingMessage(fresh, client.user.id, state.pending);
+        if (!existing) await getDestination(client, config.channelId, { verifyHistory: true });
+      }
       if (post && !post.skip) {
-        const receipt = await publish(post, existing && { id: existing.id, versionId: id });
+        const receipt = await publish(post, existing && { id: existing.id, versionId });
         if (receipt) state.published[sourceId] = receipt;
       } else if (existing) {
         await syncMessage(channel, existing.id, null);
@@ -222,7 +228,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
       if (known && (!post || comparePostIds(post.id, known.versionId) > 0)) {
         await refresh(state, version.sourceId, known, post);
       } else if (!known && post && !post.skip) {
-        state.pending = { id: version.id, sourceId: post.sourceId, startedAt: now() };
+        state.pending = { id: version.id, sourceId: post.sourceId, versionId: post.id, startedAt: now() };
         await save(state);
         state.published[post.sourceId] = await publish(post, null);
         state.pending = null;
@@ -284,6 +290,7 @@ export function setupNikitaXFeed(client) {
   }
 
   const failures = new Map();
+  const endpointHolds = new Map();
   async function runPhase(scope, run) {
     const previous = failures.get(scope);
     if (previous?.retryAt > Date.now()) return;
@@ -300,7 +307,7 @@ export function setupNikitaXFeed(client) {
 
   async function tick() {
     try {
-      if (client.isReady()) await pollNikitaXFeed(client, config, { runPhase });
+      if (client.isReady()) await pollNikitaXFeed(client, config, { runPhase, endpointHolds });
     } catch (error) {
       logError("startup", error);
     } finally {
