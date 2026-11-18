@@ -8,7 +8,9 @@ account tokens for smoke tests.
 
 ## Configuration
 
-Set all nine optional values together in the bot host's environment:
+Configure the nine support settings below. With persistent Discord destination
+settings enabled, server administrators can set the five channel and category
+IDs with `/destinations set`. Configure the staff roles and contact URLs on the host.
 
 | Variable | Meaning |
 | --- | --- |
@@ -34,6 +36,8 @@ The three help destinations must be ordinary server text channels. Ensure intend
 member roles can view them. Product dropdown routing rechecks the requesting
 member's current View Channel permission before returning a link; the public panel
 always contains its configured links, so do not configure confidential destinations.
+After changing a public help destination, use `/support panel message_id:<id>` in
+the help-desk channel to refresh the existing panel's link buttons.
 
 The bot needs View Channel, Send Messages, Read Message History, Embed Links,
 Attach Files, Manage Channels and Manage Roles in both ticket categories. It needs
@@ -164,8 +168,13 @@ buttons retain their old creation behavior. With **any** configured, they show t
 new account-ticket privacy disclosure; partial/invalid configuration fails closed.
 
 To disable rollout, remove/disable the new panel's interactive entry and point
-members to its permanent links, then remove all nine `SUPPORT_*` settings together
-and restart the bot. Preserve/review existing ticket channels and their explicit
+members to its permanent links. Remove all nine `SUPPORT_*` host settings and
+restart with destination storage enabled. Use `/destinations reset` for all five
+support channel and category overrides. Verify each reset with `/destinations list`
+before enabling the legacy entry.
+If you restore the help desk with different destinations later, update the
+existing panel with `/support panel message_id:<id>` before directing members to it.
+Preserve/review existing ticket channels and their explicit
 permissions; removing settings does not delete or migrate them, and new-ticket
 lifecycle operations will remain unavailable until valid settings are restored.
 Removing the new staff settings also removes their notification-button exclusion,

@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { ChannelType, EmbedBuilder, Events, PermissionFlagsBits, escapeMarkdown } from "discord.js";
 import { getNikitaXFeedConfig } from "../config/env.js";
+import { getDestinationOverride, withDestinationReadLock } from "../config/destinations.js";
 import { comparePostIds, createNikitaXApi, isPostId, nikitaHandle } from "../services/nikitaXApi.js";
 import { loadNikitaXState, saveNikitaXState } from "../services/nikitaXState.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
@@ -8,6 +10,8 @@ import { noMentions } from "../utils/messageReply.js";
 const pollInterval = 120_000;
 const reviewInterval = 12 * 60 * 60_000;
 const translationRetryInterval = 15 * 60_000;
+const translationLabel = "English · Machine translation";
+const translationFilename = "english-machine-translation.txt";
 const publishingPermissions = [
   PermissionFlagsBits.SendMessages,
   PermissionFlagsBits.EmbedLinks,
@@ -63,10 +67,10 @@ async function makeMessage(post, config, fetchImpl, now) {
   if (translation.text) {
     const escaped = escapeMarkdown(translation.text);
     if (escaped.length > 1024) {
-      files.push({ attachment: Buffer.from(translation.text), name: "english-machine-translation.txt" });
-      embed.addFields({ name: "English · Machine translation", value: "Translation attached." });
+      files.push({ attachment: Buffer.from(translation.text), name: translationFilename });
+      embed.addFields({ name: translationLabel, value: "Translation attached." });
     } else {
-      embed.addFields({ name: "English · Machine translation", value: escaped });
+      embed.addFields({ name: translationLabel, value: escaped });
     }
   }
 
@@ -90,7 +94,7 @@ async function findPendingMessage(channel, botId, pending) {
         if (original) {
           const revisionLink = original.author?.url;
           const versionId = revisionLink?.startsWith(postUrl("")) ? revisionLink.slice(postUrl("").length) : null;
-          return { id: message.id, versionId: isPostId(versionId) ? versionId : pending.versionId };
+          return { id: message.id, versionId: isPostId(versionId) ? versionId : pending.versionId, message };
         }
       }
       if (!oldest || comparePostIds(message.id, oldest.id) < 0) oldest = message;
@@ -118,15 +122,18 @@ function channelError() {
   return Object.assign(new Error("Nikita X feed destination is unavailable"), { code: "X_FEED_CHANNEL" });
 }
 
+const channelInaccessible = error => ["X_FEED_CHANNEL", 50001, 50013].includes(error?.code);
+
 function requirePublishingPermissions(channel, member, creating) {
   const permissions = channel.permissionsFor(member);
   if (!permissions?.has(publishingPermissions)
       || creating && !permissions.has(PermissionFlagsBits.ReadMessageHistory)) throw channelError();
 }
 
-async function getDestination(client, channelId, { verifyHistory = false } = {}) {
+async function getDestination(client, channelId, { verifyHistory = false, guildId } = {}) {
   const channel = await client.channels.fetch(channelId, { force: verifyHistory });
   if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) throw channelError();
+  if (guildId && channel.guildId !== guildId) throw channelError();
   const member = verifyHistory ? await channel.guild.members.fetchMe({ force: true }) : client.user;
   const permissions = channel.permissionsFor(member);
   if (!permissions?.has(PermissionFlagsBits.ViewChannel)
@@ -157,10 +164,24 @@ async function retainPreviews(channel, post, messageId) {
 }
 
 export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now = Date.now, runPhase, endpointHolds = new Map() } = {}) {
-  const channel = await getDestination(client, config.channelId);
   const x = createNikitaXApi(config.bearerToken, fetchImpl, now, endpointHolds);
-  const load = () => loadNikitaXState(config.stateFile, config.channelId);
-  const save = state => saveNikitaXState(config.stateFile, state);
+  const load = () => loadNikitaXState(config.stateFile, config.channelId, config.guildId);
+  const save = state => saveNikitaXState(config.stateFile, { ...state, guildId: config.guildId });
+  const activeChannelId = () => (config.guildId && getDestinationOverride(config.guildId, "nikita")) || config.channelId;
+  const channels = new Map();
+  function getChannel(id, verifyHistory = false) {
+    if (verifyHistory) return getDestination(client, id, { verifyHistory, guildId: config.guildId });
+    if (!channels.has(id)) channels.set(id, getDestination(client, id, { guildId: config.guildId }));
+    return channels.get(id);
+  }
+  async function getReceiptChannel(id) {
+    try {
+      return await getChannel(id);
+    } catch (error) {
+      if (error?.code === 10003) return null; // A deleted channel has no remaining messages.
+      throw error;
+    }
+  }
   const errors = [];
   const phase = runPhase ?? (async (_, run) => {
     try {
@@ -170,17 +191,38 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     }
   });
 
-  async function publish(post, existing) {
+  async function publish(channel, post, existing) {
     const messageId = existing?.id;
     requirePublishingPermissions(channel, client.user, !messageId);
     const needsPreviews = messageId && !post.mediaComplete && existing.versionId === post.id;
     const displayPost = needsPreviews ? await retainPreviews(channel, post, messageId) : post;
     const { payload, retryTranslationAt } = await makeMessage(displayPost, config, fetchImpl, now);
-    const receipt = { versionId: post.id, mediaComplete: post.mediaComplete, retryTranslationAt, nextReviewAt: now() + reviewInterval };
+    const receipt = { channelId: channel.id, versionId: post.id, mediaComplete: post.mediaComplete,
+      retryTranslationAt, nextReviewAt: now() + reviewInterval };
     if (messageId) {
-      return await syncMessage(channel, messageId, { ...payload, attachments: [] }) ? { messageId, ...receipt } : null;
+      const attachments = [];
+      if (retryTranslationAt && existing.versionId === post.id) {
+        try {
+          const message = existing.message ?? await channel.messages.fetch({ message: messageId, cache: false, force: true });
+          const field = message?.embeds[0]?.fields?.find(entry => entry.name === translationLabel);
+          if (field) {
+            payload.embeds[0].addFields(field);
+            for (const attachment of message.attachments?.values() ?? []) {
+              if (attachment.name === translationFilename) attachments.push({ id: attachment.id });
+            }
+            receipt.retryTranslationAt = 0;
+          }
+        } catch (error) {
+          if (error?.code === 10008) return null;
+          throw error;
+        }
+      }
+      return await syncMessage(channel, messageId, { ...payload, attachments }) ? { messageId, ...receipt } : null;
     }
-    const message = await channel.send({ ...payload, nonce: post.sourceId, enforceNonce: true });
+    const nonce = config.guildId
+      ? createHash("sha256").update(`${channel.id}:${post.sourceId}`).digest("base64url").slice(0, 25)
+      : post.sourceId;
+    const message = await channel.send({ ...payload, nonce, enforceNonce: true });
     return { messageId: message.id, ...receipt };
   }
 
@@ -189,7 +231,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     return checkedPost(posts.get(id), sourceId, retryError);
   }
 
-  async function repairMedia(record, post) {
+  async function repairMedia(channel, record, post) {
     requirePublishingPermissions(channel, client.user, false);
     try {
       const message = await channel.messages.fetch({ message: record.messageId, cache: false, force: true });
@@ -203,6 +245,11 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
   }
 
   async function refresh(state, sourceId, record, post) {
+    const channel = await getReceiptChannel(record.channelId ?? state.channelId);
+    if (!channel) {
+      delete state.published[sourceId];
+      return;
+    }
     if (!post || post.skip) {
       await syncMessage(channel, record.messageId, null);
       delete state.published[sourceId];
@@ -213,12 +260,12 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     if (versionOrder < 0) throw lookupError();
     const mediaAvailable = !record.mediaComplete && post.mediaComplete;
     if (versionOrder > 0 || record.retryTranslationAt && record.retryTranslationAt <= now()) {
-      const receipt = await publish(post, { id: record.messageId, versionId: record.versionId });
+      const receipt = await publish(channel, post, { id: record.messageId, versionId: record.versionId });
       if (receipt) state.published[sourceId] = receipt;
       else delete state.published[sourceId];
       return;
     }
-    if (mediaAvailable && !await repairMedia(record, post)) {
+    if (mediaAvailable && !await repairMedia(channel, record, post)) {
       delete state.published[sourceId];
       return;
     }
@@ -226,35 +273,86 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     record.nextReviewAt = now() + reviewInterval;
   }
 
+  async function findRecoveryTarget(state, pending) {
+    const channelId = pending.channelId ?? state.channelId;
+    const channel = await getReceiptChannel(channelId);
+    if (!channel) return {};
+    let existing = await findPendingMessage(channel, client.user.id, pending);
+    if (!existing) {
+      // Discord can return empty history without Read Message History. Search again with fresh permissions.
+      const fresh = await getChannel(channelId, true);
+      existing = await findPendingMessage(fresh, client.user.id, pending);
+      if (!existing) {
+        await getChannel(channelId, true);
+      }
+    }
+    return { channel, existing };
+  }
+
+  async function recoverPending(state, pending, deferred = false) {
+    const { id, sourceId, versionId } = pending;
+    const channelId = pending.channelId ?? state.channelId;
+    function finish(advance = true) {
+      if (deferred) delete state.recoveries[sourceId];
+      else {
+        if (advance) state.sinceId = id;
+        state.pending = null;
+      }
+      return save(state);
+    }
+    try {
+      const { channel, existing } = await findRecoveryTarget(state, pending);
+      // A deleted foreground destination leaves the post in the timeline for redelivery.
+      if (!channel && !deferred) return await finish(false);
+      const post = await lookupPost(versionId, sourceId);
+      if (existing) {
+        if (post && !post.skip) {
+          const receipt = await publish(channel, post, existing);
+          if (receipt) {
+            state.published[sourceId] = receipt;
+            return await finish();
+          }
+        } else {
+          await syncMessage(channel, existing.id, null);
+          return await finish();
+        }
+      }
+      if (!post || post.skip) return await finish();
+      await withDestinationReadLock(config.guildId, async () => {
+        const currentId = activeChannelId();
+        if (!currentId) return;
+        const target = await getChannel(currentId);
+        requirePublishingPermissions(target, client.user, true);
+        if (currentId !== channelId) {
+          pending.channelId = currentId;
+          pending.startedAt = now();
+          await save(state);
+        }
+        state.published[sourceId] = await publish(target, post, null);
+        await finish();
+      });
+    } catch (error) {
+      if (deferred || !channelInaccessible(error) || (pending.channelId ?? channelId) === activeChannelId()) throw error;
+      state.recoveries ??= {};
+      state.recoveries[sourceId] = { ...pending, channelId: pending.channelId ?? channelId };
+      await finish();
+    }
+  }
+
   async function deliver(state) {
     if (!state) {
+      const channelId = activeChannelId();
+      if (!channelId) return;
+      await getChannel(channelId);
       const userId = await x.resolveUserId();
       const posts = await x.timeline(userId, null, { seed: true });
-      await save({ version: 1, channelId: config.channelId, userId, sinceId: posts.at(-1)?.id ?? null, pending: null, published: {} });
+      await save({ version: 1, channelId, userId, sinceId: posts.at(-1)?.id ?? null, pending: null, published: {} });
       return;
     }
 
-    if (state.pending) {
-      const { id, sourceId, versionId } = state.pending;
-      const post = await lookupPost(versionId, sourceId);
-      let existing = await findPendingMessage(channel, client.user.id, state.pending);
-      if (!existing) {
-        // Discord can return empty history without Read Message History. Search again with fresh permissions.
-        const fresh = await getDestination(client, config.channelId, { verifyHistory: true });
-        existing = await findPendingMessage(fresh, client.user.id, state.pending);
-        if (!existing) await getDestination(client, config.channelId, { verifyHistory: true });
-      }
-      if (post && !post.skip) {
-        const receipt = await publish(post, existing);
-        if (receipt) state.published[sourceId] = receipt;
-      } else if (existing) {
-        await syncMessage(channel, existing.id, null);
-      }
-      state.pending = null;
-      state.sinceId = id;
-      await save(state);
-    }
+    if (state.pending) await recoverPending(state, state.pending);
 
+    if (!activeChannelId()) return;
     const timeline = await x.timeline(state.userId, state.sinceId);
     const returnedIds = new Set(timeline.map(post => post.id));
     for (const version of timeline) {
@@ -264,18 +362,50 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
         post = await lookupPost(version.id, version.sourceId);
       }
       const known = state.published[version.sourceId];
+      const deferred = state.recoveries?.[version.sourceId];
       if (known && (!post || comparePostIds(post.id, known.versionId) > 0)) {
-        await refresh(state, version.sourceId, known, post);
+        try {
+          await refresh(state, version.sourceId, known, post);
+        } catch (error) {
+          if (!channelInaccessible(error) || (known.channelId ?? state.channelId) === activeChannelId()) throw error;
+          // A review lookup follows edits to the latest version. Retry this receipt independently of delivery.
+          known.nextReviewAt = now() + pollInterval;
+        }
+      } else if (deferred) {
+        if (post && comparePostIds(post.id, deferred.versionId) > 0) deferred.versionId = post.id;
       } else if (!known && post && !post.skip) {
-        requirePublishingPermissions(channel, client.user, true);
-        state.pending = { id: version.id, sourceId: post.sourceId, versionId: post.id, startedAt: now() };
-        await save(state);
-        state.published[post.sourceId] = await publish(post, null);
-        state.pending = null;
+        const delivered = await withDestinationReadLock(config.guildId, async () => {
+          const channelId = activeChannelId();
+          if (!channelId) return false;
+          const channel = await getChannel(channelId);
+          requirePublishingPermissions(channel, client.user, true);
+          state.pending = { id: version.id, sourceId: post.sourceId, versionId: post.id, channelId, startedAt: now() };
+          await save(state);
+          state.published[post.sourceId] = await publish(channel, post, null);
+          state.pending = null;
+          state.sinceId = version.id;
+          await save(state);
+          return true;
+        });
+        if (!delivered) return;
+        continue;
       }
       state.sinceId = version.id;
       await save(state);
     }
+  }
+
+  async function recoverDeferred() {
+    const state = await load();
+    let firstError;
+    for (const pending of Object.values(state?.recoveries ?? {})) {
+      try {
+        await recoverPending(state, pending, true);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError) throw firstError;
   }
 
   async function review() {
@@ -311,7 +441,10 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
 
   const state = await load();
   await phase("timeline", () => deliver(state));
-  if (state) await phase("review", review);
+  if (state) {
+    await phase("recovery", recoverDeferred);
+    await phase("review", review);
+  }
   if (errors.length) throw errors[0];
 }
 
@@ -319,8 +452,8 @@ export function setupNikitaXFeed(client) {
   let config;
   try {
     config = getNikitaXFeedConfig();
-  } catch {
-    console.error("Nikita X feed configuration is invalid. Check the NIKITA_X_* settings.");
+  } catch (error) {
+    console.error(error.message);
     return;
   }
   if (!config) return;
@@ -348,7 +481,9 @@ export function setupNikitaXFeed(client) {
 
   async function tick() {
     try {
-      if (client.isReady()) await pollNikitaXFeed(client, config, { runPhase, endpointHolds });
+      if (client.isReady()) {
+        await pollNikitaXFeed(client, config, { runPhase, endpointHolds });
+      }
     } catch (error) {
       logError("startup", error);
     } finally {

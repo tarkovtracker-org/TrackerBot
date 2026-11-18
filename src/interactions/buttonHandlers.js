@@ -1,6 +1,8 @@
 import { ChannelType, PermissionFlagsBits, MessageFlags } from "discord.js";
 import { reactionRoleNameMap, getTicketStaffRoleIds, getNotificationRoleId, isSafeNotificationRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
+import { getDestinationId, getPreviousTicketParent, withDestinationReadLock } from "../config/destinations.js";
+import { isSupportConfigured } from "../config/support.js";
 
 const colors = {
   success: 0x4ade80,
@@ -9,6 +11,7 @@ const colors = {
 };
 
 // Serialize same-member ticket creation and notification toggles independently.
+// The shared destination lock lets different members create tickets concurrently.
 // Like the rest of the bot, this lock is process-local, not distributed.
 const activeButtons = new Set();
 
@@ -34,7 +37,7 @@ export async function handleButtonInteraction(interaction) {
   }
   activeButtons.add(key);
   try {
-    if (ticket) await handleTicketCreation(interaction);
+    if (ticket) await withDestinationReadLock(interaction.guild.id, () => handleTicketCreation(interaction));
     else await toggleReactionRole(interaction, roleName);
   } finally {
     activeButtons.delete(key);
@@ -44,6 +47,10 @@ export async function handleButtonInteraction(interaction) {
 
 async function handleTicketCreation(interaction) {
   const guild = interaction.guild;
+  if (isSupportConfigured(guild.id)) {
+    await interaction.editReply({ content: "Support settings changed. Click the ticket button again to see the current options." });
+    return;
+  }
   const member = interaction.member;
 
   let channels;
@@ -63,7 +70,7 @@ async function handleTicketCreation(interaction) {
     return;
   }
 
-  const categoryId = process.env.TICKET_CATEGORY_ID?.trim();
+  const categoryId = getDestinationId(guild.id, "tickets");
   const ticketCategory = categoryId
     ? channels.get(categoryId)
     : channels.find(c =>
@@ -90,7 +97,8 @@ async function handleTicketCreation(interaction) {
   }
 
   const existingTicket = channels.find(
-    c => c?.parentId === ticketCategory.id && c.topic === `Ticket for ${member.id}`
+    c => c?.parentId && (c.parentId === ticketCategory.id
+      || c.parentId === getPreviousTicketParent(guild.id, "tickets", c.id)) && c.topic === `Ticket for ${member.id}`
   );
 
   if (existingTicket) {
