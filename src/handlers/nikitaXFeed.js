@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { ChannelType, EmbedBuilder, Events, PermissionFlagsBits, escapeMarkdown } from "discord.js";
 import { getNikitaXFeedConfig } from "../config/env.js";
+import { getDestinationOverride } from "../config/destinations.js";
 import { comparePostIds, createNikitaXApi, isPostId, nikitaHandle } from "../services/nikitaXApi.js";
 import { loadNikitaXState, saveNikitaXState } from "../services/nikitaXState.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
@@ -124,9 +126,10 @@ function requirePublishingPermissions(channel, member, creating) {
       || creating && !permissions.has(PermissionFlagsBits.ReadMessageHistory)) throw channelError();
 }
 
-async function getDestination(client, channelId, { verifyHistory = false } = {}) {
+async function getDestination(client, channelId, { verifyHistory = false, guildId } = {}) {
   const channel = await client.channels.fetch(channelId, { force: verifyHistory });
   if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) throw channelError();
+  if (guildId && channel.guildId !== guildId) throw channelError();
   const member = verifyHistory ? await channel.guild.members.fetchMe({ force: true }) : client.user;
   const permissions = channel.permissionsFor(member);
   if (!permissions?.has(PermissionFlagsBits.ViewChannel)
@@ -157,10 +160,23 @@ async function retainPreviews(channel, post, messageId) {
 }
 
 export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now = Date.now, runPhase, endpointHolds = new Map() } = {}) {
-  const channel = await getDestination(client, config.channelId);
   const x = createNikitaXApi(config.bearerToken, fetchImpl, now, endpointHolds);
-  const load = () => loadNikitaXState(config.stateFile, config.channelId);
-  const save = state => saveNikitaXState(config.stateFile, state);
+  const load = () => loadNikitaXState(config.stateFile, config.channelId, config.guildId);
+  const save = state => saveNikitaXState(config.stateFile, { ...state, guildId: config.guildId });
+  const channels = new Map();
+  function getChannel(id, verifyHistory = false) {
+    if (verifyHistory) return getDestination(client, id, { verifyHistory, guildId: config.guildId });
+    if (!channels.has(id)) channels.set(id, getDestination(client, id, { guildId: config.guildId }));
+    return channels.get(id);
+  }
+  async function getReceiptChannel(id) {
+    try {
+      return await getChannel(id);
+    } catch (error) {
+      if (error?.code === 10003) return null; // A deleted channel has no remaining messages.
+      throw error;
+    }
+  }
   const errors = [];
   const phase = runPhase ?? (async (_, run) => {
     try {
@@ -170,17 +186,21 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     }
   });
 
-  async function publish(post, existing) {
+  async function publish(channel, post, existing) {
     const messageId = existing?.id;
     requirePublishingPermissions(channel, client.user, !messageId);
     const needsPreviews = messageId && !post.mediaComplete && existing.versionId === post.id;
     const displayPost = needsPreviews ? await retainPreviews(channel, post, messageId) : post;
     const { payload, retryTranslationAt } = await makeMessage(displayPost, config, fetchImpl, now);
-    const receipt = { versionId: post.id, mediaComplete: post.mediaComplete, retryTranslationAt, nextReviewAt: now() + reviewInterval };
+    const receipt = { channelId: channel.id, versionId: post.id, mediaComplete: post.mediaComplete,
+      retryTranslationAt, nextReviewAt: now() + reviewInterval };
     if (messageId) {
       return await syncMessage(channel, messageId, { ...payload, attachments: [] }) ? { messageId, ...receipt } : null;
     }
-    const message = await channel.send({ ...payload, nonce: post.sourceId, enforceNonce: true });
+    const nonce = config.guildId
+      ? createHash("sha256").update(`${channel.id}:${post.sourceId}`).digest("base64url").slice(0, 25)
+      : post.sourceId;
+    const message = await channel.send({ ...payload, nonce, enforceNonce: true });
     return { messageId: message.id, ...receipt };
   }
 
@@ -189,7 +209,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     return checkedPost(posts.get(id), sourceId, retryError);
   }
 
-  async function repairMedia(record, post) {
+  async function repairMedia(channel, record, post) {
     requirePublishingPermissions(channel, client.user, false);
     try {
       const message = await channel.messages.fetch({ message: record.messageId, cache: false, force: true });
@@ -203,6 +223,11 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
   }
 
   async function refresh(state, sourceId, record, post) {
+    const channel = await getReceiptChannel(record.channelId ?? state.channelId);
+    if (!channel) {
+      delete state.published[sourceId];
+      return;
+    }
     if (!post || post.skip) {
       await syncMessage(channel, record.messageId, null);
       delete state.published[sourceId];
@@ -213,12 +238,12 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     if (versionOrder < 0) throw lookupError();
     const mediaAvailable = !record.mediaComplete && post.mediaComplete;
     if (versionOrder > 0 || record.retryTranslationAt && record.retryTranslationAt <= now()) {
-      const receipt = await publish(post, { id: record.messageId, versionId: record.versionId });
+      const receipt = await publish(channel, post, { id: record.messageId, versionId: record.versionId });
       if (receipt) state.published[sourceId] = receipt;
       else delete state.published[sourceId];
       return;
     }
-    if (mediaAvailable && !await repairMedia(record, post)) {
+    if (mediaAvailable && !await repairMedia(channel, record, post)) {
       delete state.published[sourceId];
       return;
     }
@@ -226,35 +251,45 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     record.nextReviewAt = now() + reviewInterval;
   }
 
+  async function recoverPending(state) {
+    const { id, sourceId, versionId } = state.pending;
+    const channelId = state.pending.channelId ?? state.channelId;
+    const channel = await getReceiptChannel(channelId);
+    if (channel) {
+      const post = await lookupPost(versionId, sourceId);
+      let existing = await findPendingMessage(channel, client.user.id, state.pending);
+      if (!existing) {
+        // Discord can return empty history without Read Message History. Search again with fresh permissions.
+        const fresh = await getChannel(channelId, true);
+        existing = await findPendingMessage(fresh, client.user.id, state.pending);
+        if (!existing) await getChannel(channelId, true);
+      }
+      if (post && !post.skip) {
+        const receipt = await publish(channel, post, existing);
+        if (receipt) state.published[sourceId] = receipt;
+      } else if (existing) {
+        await syncMessage(channel, existing.id, null);
+      }
+      state.sinceId = id;
+    }
+    state.pending = null;
+    await save(state);
+  }
+
   async function deliver(state) {
     if (!state) {
+      if (!config.channelId) return;
+      await getChannel(config.channelId);
       const userId = await x.resolveUserId();
       const posts = await x.timeline(userId, null, { seed: true });
       await save({ version: 1, channelId: config.channelId, userId, sinceId: posts.at(-1)?.id ?? null, pending: null, published: {} });
       return;
     }
 
-    if (state.pending) {
-      const { id, sourceId, versionId } = state.pending;
-      const post = await lookupPost(versionId, sourceId);
-      let existing = await findPendingMessage(channel, client.user.id, state.pending);
-      if (!existing) {
-        // Discord can return empty history without Read Message History. Search again with fresh permissions.
-        const fresh = await getDestination(client, config.channelId, { verifyHistory: true });
-        existing = await findPendingMessage(fresh, client.user.id, state.pending);
-        if (!existing) await getDestination(client, config.channelId, { verifyHistory: true });
-      }
-      if (post && !post.skip) {
-        const receipt = await publish(post, existing);
-        if (receipt) state.published[sourceId] = receipt;
-      } else if (existing) {
-        await syncMessage(channel, existing.id, null);
-      }
-      state.pending = null;
-      state.sinceId = id;
-      await save(state);
-    }
+    if (state.pending) await recoverPending(state);
 
+    if (!config.channelId) return;
+    const channel = await getChannel(config.channelId);
     const timeline = await x.timeline(state.userId, state.sinceId);
     const returnedIds = new Set(timeline.map(post => post.id));
     for (const version of timeline) {
@@ -268,9 +303,9 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
         await refresh(state, version.sourceId, known, post);
       } else if (!known && post && !post.skip) {
         requirePublishingPermissions(channel, client.user, true);
-        state.pending = { id: version.id, sourceId: post.sourceId, versionId: post.id, startedAt: now() };
+        state.pending = { id: version.id, sourceId: post.sourceId, versionId: post.id, channelId: channel.id, startedAt: now() };
         await save(state);
-        state.published[post.sourceId] = await publish(post, null);
+        state.published[post.sourceId] = await publish(channel, post, null);
         state.pending = null;
       }
       state.sinceId = version.id;
@@ -348,7 +383,10 @@ export function setupNikitaXFeed(client) {
 
   async function tick() {
     try {
-      if (client.isReady()) await pollNikitaXFeed(client, config, { runPhase, endpointHolds });
+      if (client.isReady()) {
+        const channelId = config.guildId && getDestinationOverride(config.guildId, "nikita") || config.channelId;
+        await pollNikitaXFeed(client, { ...config, channelId }, { runPhase, endpointHolds });
+      }
     } catch (error) {
       logError("startup", error);
     } finally {

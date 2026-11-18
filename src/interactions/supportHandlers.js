@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { isSupportConfigured, loadSupportContext, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketOverwrites, ticketTopic } from "../config/support.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
+import { getPreviousTicketParent, withTicketDestinationLock } from "../config/destinations.js";
 import { noMentions } from "../utils/messageReply.js";
 
 const operations = new Set();
@@ -16,7 +17,7 @@ export function ticketControls() {
 export async function handleSupportInteraction(interaction) {
   const lifecycleCommand = interaction.isChatInputCommand?.() && interaction.commandName === "ticket";
   const actionId = lifecycleCommand ? `support:${interaction.options.getSubcommand()}:v1` : interaction.customId;
-  const legacy = interaction.customId === "create_ticket" && isSupportConfigured();
+  const legacy = interaction.customId === "create_ticket" && isSupportConfigured(interaction.guildId);
   const menu = interaction.isStringSelectMenu?.() && interaction.customId === supportMenuId;
   const button = interaction.isButton?.() && (legacy || [
     "support:close:v1", "support:reopen:v1"
@@ -28,6 +29,50 @@ export async function handleSupportInteraction(interaction) {
   let ownsLock = false;
   let mutationStarted = false;
   try {
+    if (actionId.startsWith("support:open:")) {
+      const type = actionId.split(":")[2];
+      key = `${interaction.guildId}:${interaction.user.id}:${type}`;
+      if (operations.has(key)) {
+        await interaction.editReply({ content: "Your ticket action is already in progress. Check its result before trying again." });
+        return true;
+      }
+      operations.add(key);
+      ownsLock = true;
+      return await withTicketDestinationLock(interaction.guildId, async () => {
+        const { config, bot } = await loadSupportContext(interaction.guild);
+        if (actionId !== ticketConfirmationId(type, config)) {
+          await interaction.editReply({ content: "The ticket audience or destination changed. Select your support option again to review the current privacy notice before opening a ticket." });
+          return true;
+        }
+        const ticket = config.tickets[type];
+        // Fetch inside the lock: a prior create may have completed during configuration checks.
+        const currentChannels = await interaction.guild.channels.fetch();
+        const existing = currentChannels.find(channel => channel?.parentId && (channel.parentId === ticket.categoryId
+          || channel.parentId === getPreviousTicketParent(interaction.guildId, `support-${type}`, channel.id)) &&
+          (parseTicketTopic(channel.topic)?.ownerId === interaction.user.id && parseTicketTopic(channel.topic)?.type === type ||
+            type === "account" && channel.topic === `Ticket for ${interaction.user.id}`));
+        if (existing) {
+          await interaction.editReply({ content: `You already have a ticket: <#${existing.id}>. If closed, ask its staff to reopen it.`, allowedMentions: noMentions });
+          return true;
+        }
+        mutationStarted = true;
+        const created = await interaction.guild.channels.create({
+          name: `${type}-ticket`, type: ChannelType.GuildText, parent: ticket.categoryId,
+          topic: ticketTopic(type, interaction.user.id, "open"),
+          permissionOverwrites: ticketOverwrites(interaction.guildId, bot.id, ticket, interaction.user.id, "open"),
+          reason: "Member requested private support"
+        });
+        await created.send({
+          embeds: [createCardEmbed({ title: ticket.label,
+            description: `<@${interaction.user.id}> describe the issue here; include relevant links/screenshots. Do not share passwords or tokens.\nVisible to you, the bot, ${ticket.roleIds.map(roleId => `<@&${roleId}>`).join(", ")}, and Discord administrators.\nAlternative private contact: ${config.escalationUrl}` })],
+          components: [ticketControls()], allowedMentions: noMentions
+        }).catch(err => console.warn("Support ticket opening notice failed", { code: err?.code ?? "unknown" }));
+        await interaction.editReply({ content: `Your private ticket is ready: <#${created.id}>.`, allowedMentions: noMentions })
+          .catch(err => console.warn("Support ticket confirmation failed", { code: err?.code ?? "unknown" }));
+        return true;
+      });
+    }
+
     const context = await loadSupportContext(interaction.guild);
     const { config, channels, bot } = context;
     if (menu || legacy) {
@@ -61,46 +106,6 @@ export async function handleSupportInteraction(interaction) {
       return true;
     }
 
-    if (actionId.startsWith("support:open:")) {
-      const type = actionId.split(":")[2];
-      if (actionId !== ticketConfirmationId(type, config)) {
-        await interaction.editReply({ content: "The ticket audience or destination changed. Select your support option again to review the current privacy notice before opening a ticket." });
-        return true;
-      }
-      key = `${interaction.guildId}:${interaction.user.id}:${type}`;
-      if (operations.has(key)) {
-        await interaction.editReply({ content: "Your ticket action is already in progress. Check its result before trying again." });
-        return true;
-      }
-      operations.add(key);
-      ownsLock = true;
-      const ticket = config.tickets[type];
-      // Fetch inside the lock: a prior create may have completed during configuration checks.
-      const currentChannels = await interaction.guild.channels.fetch();
-      const existing = currentChannels.find(channel => channel?.parentId === ticket.categoryId &&
-        (parseTicketTopic(channel.topic)?.ownerId === interaction.user.id && parseTicketTopic(channel.topic)?.type === type ||
-          type === "account" && channel.topic === `Ticket for ${interaction.user.id}`));
-      if (existing) {
-        await interaction.editReply({ content: `You already have a ticket: <#${existing.id}>. If closed, ask its staff to reopen it.`, allowedMentions: noMentions });
-        return true;
-      }
-      mutationStarted = true;
-      const created = await interaction.guild.channels.create({
-        name: `${type}-ticket`, type: ChannelType.GuildText, parent: ticket.categoryId,
-        topic: ticketTopic(type, interaction.user.id, "open"),
-        permissionOverwrites: ticketOverwrites(interaction.guildId, bot.id, ticket, interaction.user.id, "open"),
-        reason: "Member requested private support"
-      });
-      await created.send({
-        embeds: [createCardEmbed({ title: ticket.label,
-          description: `<@${interaction.user.id}> describe the issue here; include relevant links/screenshots. Do not share passwords or tokens.\nVisible to you, the bot, ${ticket.roleIds.map(roleId => `<@&${roleId}>`).join(", ")}, and Discord administrators.\nAlternative private contact: ${config.escalationUrl}` })],
-        components: [ticketControls()], allowedMentions: noMentions
-      }).catch(err => console.warn("Support ticket opening notice failed", { code: err?.code ?? "unknown" }));
-      await interaction.editReply({ content: `Your private ticket is ready: <#${created.id}>.`, allowedMentions: noMentions })
-        .catch(err => console.warn("Support ticket confirmation failed", { code: err?.code ?? "unknown" }));
-      return true;
-    }
-
     key = `${interaction.guildId}:channel:${interaction.channelId}`;
     if (operations.has(key)) {
       await interaction.editReply({ content: "A ticket action is already in progress here. Check its result before trying again." });
@@ -111,7 +116,10 @@ export async function handleSupportInteraction(interaction) {
     const channel = await interaction.guild.channels.fetch(interaction.channelId, { force: true });
     const metadata = parseTicketTopic(channel?.topic);
     const ticket = metadata && config.tickets[metadata.type];
-    if (channel?.type !== ChannelType.GuildText || !ticket || channel.parentId !== ticket.categoryId || channel.guildId !== interaction.guildId) {
+    if (channel?.type !== ChannelType.GuildText || !ticket
+        || !channel.parentId || (channel.parentId !== ticket.categoryId
+          && channel.parentId !== getPreviousTicketParent(interaction.guildId, `support-${metadata.type}`, channel.id))
+        || channel.guildId !== interaction.guildId) {
       await interaction.editReply({ content: "This is not a managed support ticket. Nothing changed." });
       return true;
     }

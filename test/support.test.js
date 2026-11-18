@@ -1,5 +1,9 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { ChannelType, Collection, MessageFlags, OverwriteType, PermissionOverwrites, PermissionFlagsBits as P } from "discord.js";
 import { adminRoles, isSafeNotificationRole } from "../src/config/constants.js";
 import { getSupportConfig, loadSupportContext, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketTopic } from "../src/config/support.js";
@@ -7,6 +11,7 @@ import { handleSupportInteraction } from "../src/interactions/supportHandlers.js
 import { executeSupport, supportPanel } from "../src/commands/supportCommand.js";
 import { registerInteractionHandler } from "../src/handlers/interactionHandler.js";
 import { handleChatInputCommand } from "../src/interactions/slashHandlers.js";
+import { initializeDestinations, updateDestination } from "../src/config/destinations.js";
 
 const ids = {
   guild: "100000000000000001", bot: "100000000000000002", member: "100000000000000003",
@@ -241,6 +246,74 @@ test("uncertain create does not retry and releases the process lock", async () =
   f.guild.channels.create = create;
   await handleSupportInteraction(f.interaction);
   assert.equal(f.created.length, 1);
+});
+
+test("existing tickets remain manageable after the configured category moves", async t => {
+  const dir = await mkdtemp(join(tmpdir(), "trackerbot-support-destinations-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await initializeDestinations(join(dir, "destinations.json"));
+  const f = fixture({ action: "close", actor: ids.other, actorRoles: [ids.moderationRole] });
+  const newCategory = "100000000000000099";
+  f.channels.set(newCategory, { ...f.channels.get(ids.moderation), id: newCategory });
+  try {
+    await updateDestination(ids.guild, "support-moderation", newCategory,
+      () => ({ categoryId: ids.moderation, ticketIds: [f.ticket.id] }));
+    assert.equal((await loadSupportContext(f.guild)).config.tickets.moderation.categoryId, newCategory);
+    assert.equal(f.ticket.parentId, ids.moderation);
+    await handleSupportInteraction(f.interaction);
+    assert.equal(f.edits[0].topic, ticketTopic("moderation", ids.member, "closed"));
+    const spoofed = { ...f.ticket, id: "100000000000000098", topic: ticketTopic("moderation", ids.member, "open") };
+    f.channels.set(spoofed.id, spoofed);
+    f.interaction.channelId = spoofed.id;
+    await handleSupportInteraction(f.interaction);
+    assert.match(last(f), /not a managed support ticket/);
+    assert.equal(f.edits.length, 1);
+  } finally {
+    await initializeDestinations(join(dir, "empty.json"));
+  }
+});
+
+test("a category move waits for an in-flight ticket creation and keeps the created ticket manageable", async t => {
+  const dir = await mkdtemp(join(tmpdir(), "trackerbot-ticket-move-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await initializeDestinations(join(dir, "destinations.json"));
+  const f = fixture({ action: "open", value: "moderation" });
+  const newCategory = "100000000000000099";
+  f.channels.set(newCategory, { ...f.channels.get(ids.moderation), id: newCategory });
+  const started = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const create = f.guild.channels.create;
+  f.guild.channels.create = async payload => {
+    started.resolve();
+    await release.promise;
+    return create(payload);
+  };
+  const opening = handleSupportInteraction(f.interaction);
+  let moving;
+  try {
+    await started.promise;
+    let capturedBeforeCreation = false;
+    moving = updateDestination(ids.guild, "support-moderation", newCategory, () => {
+      const ticketIds = [...f.channels.values()].filter(channel =>
+        channel.type === ChannelType.GuildText && channel.parentId === ids.moderation).map(channel => channel.id);
+      capturedBeforeCreation = !ticketIds.length;
+      return { categoryId: ids.moderation, ticketIds };
+    });
+    await nextTurn();
+    release.resolve();
+    await Promise.all([opening, moving]);
+    assert.equal(capturedBeforeCreation, false);
+    assert.equal(f.created[0].parent, ids.moderation);
+    assert.equal((await loadSupportContext(f.guild)).config.tickets.moderation.categoryId, newCategory);
+    f.interaction.customId = "support:close:v1";
+    f.interaction.channelId = f.ticket.id;
+    await handleSupportInteraction(f.interaction);
+    assert.equal(f.edits[0].topic, ticketTopic("moderation", ids.member, "closed"));
+  } finally {
+    release.resolve();
+    await Promise.allSettled([opening, moving]);
+    await initializeDestinations(join(dir, "empty.json"));
+  }
 });
 
 for (const action of ["close", "reopen"]) {

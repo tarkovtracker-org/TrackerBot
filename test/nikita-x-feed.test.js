@@ -12,6 +12,8 @@ const time = Date.parse("2026-05-12T11:04:00Z");
 const channelId = "100000000000000001";
 const userId = "100000000000000002";
 const botId = "100000000000000003";
+const otherChannelId = "100000000000000099";
+const guildId = "100000000000000088";
 const xId = offset => ((BigInt(time + offset) - 1288834974657n) << 22n).toString();
 const image = "https://pbs.twimg.com/media/server.jpg";
 const extraImage = "https://pbs.twimg.com/media/rack.jpg";
@@ -38,6 +40,8 @@ async function fixture(t) {
   let currentTime = time + 1000;
   let nextMessage = 100000000000000003n;
   const channel = {
+    id: channelId,
+    guildId,
     type: ChannelType.GuildText,
     guild: { members: { async fetchMe({ force }) { assert.equal(force, true); return { fresh: true }; } } },
     permissionsFor(member) {
@@ -54,7 +58,7 @@ async function fixture(t) {
         embeds: payload.embeds.map(embed => embed.toJSON?.() ?? embed)
       };
       messages.set(id, message);
-      operations.push({ type: "send", id, payload });
+      operations.push({ type: "send", id, payload, channelId: this.id });
       if (channel.loseResponse) throw new Error("Discord accepted the send before the connection dropped");
       return message;
     },
@@ -81,19 +85,24 @@ async function fixture(t) {
       }
     }
   };
+  const alternate = { ...channel, id: otherChannelId, messages: {
+    ...channel.messages,
+    async delete() { assert.fail("A receipt from the original channel must not be removed in the new channel"); }
+  } };
   const client = {
     user: { id: botId },
     channels: {
       async fetch(id, { force }) {
-        assert.equal(id, channelId);
+        assert.ok([channelId, otherChannelId].includes(id));
         assert.equal(typeof force, "boolean");
-        return channel;
+        if (id === channelId && channel.deleted) throw Object.assign(new Error("Unknown Channel"), { code: 10003 });
+        return id === channelId ? channel : alternate;
       }
     }
   };
 
   const feed = {
-    config, env, channel, operations, calls, messages,
+    config, env, channel, alternate, operations, calls, messages,
     get time() { return currentTime; },
     timeline: () => ({ meta: { result_count: 0 } }),
     lookup: () => assert.fail("Unexpected X post lookup"),
@@ -158,6 +167,7 @@ test("feed is opt-in and requires a complete configuration and trusted HTTPS tra
   for (const invalid of [
     { NIKITA_X_BEARER_TOKEN: "" }, { NIKITA_X_CHANNEL_ID: "invalid" },
     { NIKITA_X_STATE_FILE: "relative.json" }, { NIKITA_X_TRANSLATE_URL: "http://example.test/translate" },
+    { TRACKERBOT_DESTINATIONS_FILE: config.stateFile },
     { NIKITA_X_TRANSLATE_URL: "https://user:password@example.test/translate" }
   ]) {
     assert.throws(() => getNikitaXFeedConfig({ ...env, ...invalid }), /Invalid Nikita X feed/);
@@ -522,4 +532,61 @@ test("a failed revision lookup still applies settled deletions in the batch", as
   const checkpoint = await feed.read();
   assert.equal(checkpoint.published[deleted.id], undefined);
   assert.equal(checkpoint.published[original.id].nextReviewAt, feed.time);
+});
+
+test("switching the feed destination preserves old receipts and relays new posts only to the new channel", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const old = post(2);
+  const recent = post(3);
+  feed.timeline = () => ({ data: [old] });
+  await feed.poll();
+  const legacy = await feed.read();
+  delete legacy.published[old.id].channelId;
+  await writeFile(feed.config.stateFile, JSON.stringify(legacy));
+
+  feed.config.guildId = guildId;
+  feed.config.channelId = otherChannelId;
+  feed.timeline = () => ({ data: [old, recent] });
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => [operation.channelId, operation.payload.embeds[0].toJSON().url]), [
+    [channelId, `https://x.com/nikgeneburn/status/${old.id}`],
+    [otherChannelId, `https://x.com/nikgeneburn/status/${recent.id}`]
+  ]);
+  assert.equal((await feed.read()).published[recent.id].channelId, otherChannelId);
+
+  feed.config.channelId = undefined;
+  feed.advance(12 * 60 * 60_000);
+  feed.lookup = () => ({
+    data: [recent], errors: [{ title: "Not Found Error", resource_type: "tweet", resource_id: old.id }]
+  });
+  await feed.poll();
+  assert.deepEqual(feed.operations.at(-1), { type: "delete", id: feed.operations[0].id });
+  assert.equal((await feed.read()).sinceId, recent.id);
+});
+
+test("a host-enabled feed cannot send to a channel outside its configured guild", async t => {
+  const feed = await fixture(t);
+  feed.config.guildId = "100000000000000077";
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  assert.deepEqual(feed.calls, []);
+});
+
+test("a deleted pending destination cannot block delivery to the new channel", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const entry = post(2);
+  feed.timeline = () => ({ data: [entry] });
+  feed.channel.loseResponse = true;
+  await assert.rejects(feed.poll(), /accepted the send/);
+  feed.channel.loseResponse = false;
+  feed.channel.deleted = true;
+  feed.config.guildId = guildId;
+  feed.config.channelId = otherChannelId;
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [channelId, otherChannelId]);
+  assert.notEqual(feed.operations[0].payload.nonce, feed.operations[1].payload.nonce);
+  const checkpoint = await feed.read();
+  assert.equal(checkpoint.pending, null);
+  assert.equal(checkpoint.published[entry.id].channelId, otherChannelId);
 });

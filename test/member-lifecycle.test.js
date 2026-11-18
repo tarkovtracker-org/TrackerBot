@@ -59,6 +59,7 @@ test("null welcome rejection remains contained", async () => {
 
 test("null leave failure remains contained", async () => {
   const f = fixture();
+  await f.join();
   f.channel.isTextBased = () => { throw null; };
   await assert.doesNotReject(f.leave());
   assert.equal(console.error.mock.calls[0].arguments[1].code, "unknown");
@@ -71,11 +72,13 @@ test("missing runtime join configuration cannot reject the event listener", asyn
   assert.equal(console.error.mock.calls.length, 1);
 });
 
-test("missing runtime leave configuration cannot reject the event listener", async () => {
+test("welcome cleanup uses the original destination after configuration changes", async () => {
   const f = fixture();
+  await f.join();
   delete process.env.WELCOME_CHANNEL_ID;
   await assert.doesNotReject(f.leave());
-  assert.equal(console.error.mock.calls.length, 1);
+  assert.equal(f.messages.size, 0);
+  assert.equal(console.error.mock.calls.length, 0);
 });
 
 test("welcome only notifies the joining member and can be cleaned up on leave", async () => {

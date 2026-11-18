@@ -1,6 +1,7 @@
 import { ChannelType, PermissionFlagsBits, MessageFlags } from "discord.js";
 import { reactionRoleNameMap, getTicketStaffRoleIds, getNotificationRoleId, isSafeNotificationRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
+import { getDestinationId, getPreviousTicketParent, withTicketDestinationLock } from "../config/destinations.js";
 
 const colors = {
   success: 0x4ade80,
@@ -34,7 +35,7 @@ export async function handleButtonInteraction(interaction) {
   }
   activeButtons.add(key);
   try {
-    if (ticket) await handleTicketCreation(interaction);
+    if (ticket) await withTicketDestinationLock(interaction.guild.id, () => handleTicketCreation(interaction));
     else await toggleReactionRole(interaction, roleName);
   } finally {
     activeButtons.delete(key);
@@ -63,7 +64,7 @@ async function handleTicketCreation(interaction) {
     return;
   }
 
-  const categoryId = process.env.TICKET_CATEGORY_ID?.trim();
+  const categoryId = getDestinationId(guild.id, "tickets");
   const ticketCategory = categoryId
     ? channels.get(categoryId)
     : channels.find(c =>
@@ -90,7 +91,8 @@ async function handleTicketCreation(interaction) {
   }
 
   const existingTicket = channels.find(
-    c => c?.parentId === ticketCategory.id && c.topic === `Ticket for ${member.id}`
+    c => c?.parentId && (c.parentId === ticketCategory.id
+      || c.parentId === getPreviousTicketParent(guild.id, "tickets", c.id)) && c.topic === `Ticket for ${member.id}`
   );
 
   if (existingTicket) {

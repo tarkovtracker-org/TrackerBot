@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { ChannelType, OverwriteType, PermissionFlagsBits } from "discord.js";
+import { getDestinationId } from "./destinations.js";
 
 export const supportMenuId = "support:route:v1";
 export const supportProducts = {
@@ -24,13 +25,14 @@ function id(value, name) {
   return value;
 }
 
-export function isSupportConfigured() {
+export function isSupportConfigured(guildId) {
   const names = [
-    ...Object.values(supportProducts).map(product => product.env),
-    ...Object.values(supportTicketTypes).flatMap(({ prefix }) => [`${prefix}_CATEGORY_ID`, `${prefix}_STAFF_ROLE_IDS`]),
+    ...Object.values(supportTicketTypes).map(({ prefix }) => `${prefix}_STAFF_ROLE_IDS`),
     "SUPPORT_CONTACT_URL", "SUPPORT_ESCALATION_URL"
   ];
-  return names.some(name => Boolean(process.env[name]?.trim()));
+  return names.some(name => Boolean(process.env[name]?.trim()))
+    || [...Object.keys(supportProducts), ...Object.keys(supportTicketTypes)]
+      .some(key => Boolean(getDestinationId(guildId, `support-${key}`)));
 }
 
 function contactUrl(name) {
@@ -42,13 +44,13 @@ function contactUrl(name) {
   return url.href;
 }
 
-export function getSupportConfig() {
+export function getSupportConfig(guildId) {
   const products = Object.fromEntries(Object.entries(supportProducts).map(([key, value]) =>
-    [key, { ...value, channelId: id(process.env[value.env]?.trim(), value.env) }]
+    [key, { ...value, channelId: id(getDestinationId(guildId, `support-${key}`), value.env) }]
   ));
   const tickets = Object.fromEntries(Object.entries(supportTicketTypes).map(([key, value]) => {
     const roleIds = [...new Set((process.env[`${value.prefix}_STAFF_ROLE_IDS`] ?? "").split(",").map(roleId => id(roleId.trim(), `${value.prefix}_STAFF_ROLE_IDS`)))];
-    return [key, { ...value, categoryId: id(process.env[`${value.prefix}_CATEGORY_ID`]?.trim(), `${value.prefix}_CATEGORY_ID`), roleIds }];
+    return [key, { ...value, categoryId: id(getDestinationId(guildId, `support-${key}`), `${value.prefix}_CATEGORY_ID`), roleIds }];
   }));
   if (tickets.account.categoryId === tickets.moderation.categoryId ||
       tickets.account.roleIds.some(roleId => tickets.moderation.roleIds.includes(roleId))) {
@@ -58,7 +60,7 @@ export function getSupportConfig() {
 }
 
 export async function loadSupportContext(guild) {
-  const config = getSupportConfig();
+  const config = getSupportConfig(guild.id);
   const [channels, roles, bot] = await Promise.all([guild.channels.fetch(), guild.roles.fetch(), guild.members.fetchMe({ force: true })]);
   for (const product of Object.values(config.products)) {
     const channel = channels.get(product.channelId);

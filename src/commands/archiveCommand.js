@@ -2,6 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags
 import { adminRoles, hasAdminRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { noMentions } from "../utils/messageReply.js";
+import { getDestinationId } from "../config/destinations.js";
 
 export async function executeArchive(interaction) {
   if (!hasAdminRole(interaction.member.roles.cache)) {
@@ -16,7 +17,7 @@ export async function executeArchive(interaction) {
   try {
     const guild = interaction.guild;
     const channels = await guild.channels.fetch();
-    const categoryId = process.env.ARCHIVE_CATEGORY_ID?.trim();
+    const categoryId = getDestinationId(guild.id, "archive");
     const category = categoryId ? channels.get(categoryId) : channels.find(channel =>
       channel?.type === ChannelType.GuildCategory && channel.name.trim().toLowerCase() === "archive"
     );
@@ -50,6 +51,10 @@ export async function executeArchive(interaction) {
     const member = await guild.members.fetch({ user: interaction.user.id, force: true });
     if (!hasAdminRole(member.roles.cache)) {
       await interaction.editReply({ content: "Your admin access has changed. Nothing changed.", embeds: [], components: [] });
+      return;
+    }
+    if (getDestinationId(guild.id, "archive") !== categoryId) {
+      await interaction.editReply({ content: "The archive destination changed. Open a new preview.", embeds: [], components: [] });
       return;
     }
     const roles = await guild.roles.fetch();

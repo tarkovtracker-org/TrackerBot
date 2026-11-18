@@ -8,7 +8,9 @@ account tokens for smoke tests.
 
 ## Configuration
 
-Set all nine optional values together in the bot host's environment:
+Configure the nine support settings below. With persistent Discord destination
+settings enabled, server administrators can set the five channel and category
+IDs with `/destinations set`. Configure the staff roles and contact URLs on the host.
 
 | Variable | Meaning |
 | --- | --- |

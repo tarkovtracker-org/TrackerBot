@@ -7,6 +7,7 @@ import {
 } from "discord.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { hasAdminRole } from "../config/constants.js";
+import { destinations, getDestinationId } from "../config/destinations.js";
 
 const colors = {
   success: 0x4ade80,
@@ -19,11 +20,9 @@ const CONFIRM_TIMEOUT_MS = 15_000;
 
 // Returns human-readable feature names tied to a channel ID, so the confirm
 // warning can tell the admin exactly which bot features will break.
-export function getAffectedBotFeatures(channelId) {
-  const features = [];
-  if (process.env.WELCOME_CHANNEL_ID === channelId) features.push("welcome messages (WELCOME_CHANNEL_ID)");
-  if (process.env.HONEYPOT_CHANNEL_ID === channelId) features.push("honeypot (HONEYPOT_CHANNEL_ID)");
-  return features;
+export function getAffectedBotFeatures(channelId, guildId) {
+  return Object.entries(destinations).filter(([key]) => getDestinationId(guildId, key) === channelId)
+    .map(([, { label, env }]) => `${label.toLowerCase()} (${env})`);
 }
 
 export async function executeNuke(interaction) {
@@ -66,7 +65,7 @@ export async function executeNuke(interaction) {
     return;
   }
 
-  const affectedFeatures = getAffectedBotFeatures(channel.id);
+  const affectedFeatures = getAffectedBotFeatures(channel.id, interaction.guildId);
   const isBotChannel = affectedFeatures.length > 0;
 
   const warningLines = [

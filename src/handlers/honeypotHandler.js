@@ -1,11 +1,10 @@
 import { Events } from "discord.js";
 import { hasAdminRole } from "../config/constants.js";
+import { canConfigureDestinations, getDestinationId } from "../config/destinations.js";
 
 // Honeypot channel: a hidden channel that real users should never post in.
 // Bots/spam accounts that find it and send a message are banned on sight.
-// Activates only when HONEYPOT_CHANNEL_ID is set; otherwise this is a no-op.
-
-const HONEYPOT_CHANNEL_ID = process.env.HONEYPOT_CHANNEL_ID;
+// Active only when a host or server administrator sets its destination.
 
 // Stable marker embedded in the bot's warning message so we can detect it
 // across restarts without persisting state.
@@ -22,34 +21,40 @@ const MAX_FETCH_PAGES = 10;
 const PAGE_SIZE = 100;
 
 export function setupHoneypot(client) {
-  if (!HONEYPOT_CHANNEL_ID) return;
+  if (!getDestinationId(undefined, "honeypot") && !canConfigureDestinations()) return;
 
-  // Use `once`: discord.js re-emits ClientReady on reconnect, and `on` would
-  // register a fresh setInterval each time, leaking cleanup timers.
-  client.once(Events.ClientReady, async () => {
-    try {
-      const channel = client.channels.cache.get(HONEYPOT_CHANNEL_ID);
-      if (!channel?.isTextBased()) {
-        console.warn(`Honeypot channel not found or not text-based: ${HONEYPOT_CHANNEL_ID}`);
-        return;
+  function active(channel) {
+    return channel.id === getDestinationId(channel.guildId, "honeypot");
+  }
+
+  async function sweep() {
+    const ids = new Set([...client.guilds.cache.keys()].map(guildId => getDestinationId(guildId, "honeypot")));
+    for (const id of ids) {
+      if (!id) continue;
+      const channel = client.channels.cache.get(id);
+      if (!channel?.isTextBased() || !active(channel)) continue;
+      try {
+        await ensureHoneypotMessage(channel);
+        await cleanupOldMessages(channel, () => active(channel));
+      } catch (err) {
+        console.error("Honeypot cleanup failed", { code: err?.code ?? "unknown" });
       }
-
-      await ensureHoneypotMessage(channel);
-      await cleanupOldMessages(channel);
-
-      // Recurring sweep for messages older than 16h.
-      setInterval(() => {
-        cleanupOldMessages(channel).catch(err =>
-          console.error("Honeypot cleanup failed:", err)
-        );
-      }, CLEANUP_INTERVAL_MS);
-    } catch (err) {
-      console.error("Failed to set up honeypot:", err);
     }
-  });
+  }
+
+  async function tick() {
+    try {
+      await sweep();
+    } catch (err) {
+      console.error("Honeypot sweep failed", { code: err?.code ?? "unknown" });
+    } finally {
+      setTimeout(tick, CLEANUP_INTERVAL_MS).unref();
+    }
+  }
+  client.once(Events.ClientReady, tick);
 
   client.on(Events.MessageCreate, async message => {
-    if (message.channelId !== HONEYPOT_CHANNEL_ID) return;
+    if (message.channelId !== getDestinationId(message.guild?.id, "honeypot")) return;
     if (message.author.bot) return;
 
     try {
@@ -57,6 +62,7 @@ export function setupHoneypot(client) {
       // admin exemption cannot be bypassed by a missing message.member value.
       const member = message.member ?? await message.guild.members.fetch(message.author.id);
       if (hasAdminRole(member.roles.cache)) return;
+      if (message.channelId !== getDestinationId(message.guild?.id, "honeypot")) return;
 
       try {
         await message.delete();
@@ -64,7 +70,7 @@ export function setupHoneypot(client) {
         console.error("Failed to delete honeypot trigger message:", err);
       }
 
-      await punishAuthor(message);
+      if (message.channelId === getDestinationId(message.guild?.id, "honeypot")) await punishAuthor(message);
     } catch (err) {
       // Fail safe: if member resolution or role inspection fails, do not risk
       // punishing an administrator.
@@ -75,7 +81,7 @@ export function setupHoneypot(client) {
 
 // Send the warning message only if no existing bot message carries the marker.
 // Paginates so an existing marker beyond the first page isn't missed.
-async function ensureHoneypotMessage(channel) {
+export async function ensureHoneypotMessage(channel) {
   for await (const messages of fetchMessagePages(channel)) {
     if (messages.some(msg => msg.author.bot && msg.content?.includes(HONEYPOT_MARKER))) {
       return; // marker found — no duplicate needed
@@ -87,9 +93,10 @@ async function ensureHoneypotMessage(channel) {
 // Delete messages older than 16h, preserving the honeypot warning message.
 // Uses bulk delete for messages within Discord's 14-day window, individual
 // delete otherwise. Paginates so older messages beyond the first page are swept.
-async function cleanupOldMessages(channel) {
+async function cleanupOldMessages(channel, active) {
   const now = Date.now();
   for await (const messages of fetchMessagePages(channel)) {
+    if (!active()) return;
     const toDelete = messages.filter(
       msg => now - msg.createdTimestamp > SIXTEEN_HOURS_MS &&
         !(msg.author.bot && msg.content?.includes(HONEYPOT_MARKER))
@@ -113,6 +120,7 @@ async function cleanupOldMessages(channel) {
     }
 
     for (const msg of individual.values()) {
+      if (!active()) return;
       try {
         await msg.delete();
       } catch (err) {

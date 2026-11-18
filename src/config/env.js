@@ -1,8 +1,7 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 const requiredEnvVars = [
   "DISCORD_TOKEN",
-  "WELCOME_CHANNEL_ID",
   "AUTO_ROLE_ID_1",
   "AUTO_ROLE_ID_2",
   "AUTO_ROLE_ID_3",
@@ -33,18 +32,22 @@ export function ensureWebEnvVars(env = process.env) {
 
 export function getNikitaXFeedConfig(env = process.env) {
   const channelId = env.NIKITA_X_CHANNEL_ID?.trim();
-  if (!channelId) return null;
+  const guildId = env.NIKITA_X_GUILD_ID?.trim();
+  if (!channelId && !guildId) return null;
 
   const bearerToken = env.NIKITA_X_BEARER_TOKEN?.trim();
   const stateFile = env.NIKITA_X_STATE_FILE?.trim();
+  const destinationsFile = env.TRACKERBOT_DESTINATIONS_FILE?.trim();
   const translateUrl = URL.parse(env.NIKITA_X_TRANSLATE_URL?.trim() ?? "");
-  if (!/^\d{17,20}$/.test(channelId) || !bearerToken || !stateFile || !isAbsolute(stateFile)
+  if ((channelId && !/^\d{17,20}$/.test(channelId)) || (guildId && !/^\d{17,20}$/.test(guildId))
+      || !bearerToken || !stateFile || !isAbsolute(stateFile)
+      || destinationsFile && resolve(destinationsFile) === resolve(stateFile)
       || translateUrl?.protocol !== "https:" || translateUrl.username || translateUrl.password
       || translateUrl.search || translateUrl.hash) {
     throw new Error("Invalid Nikita X feed configuration");
   }
 
-  return { channelId, bearerToken, stateFile, translateUrl, translateKey: env.NIKITA_X_TRANSLATE_API_KEY?.trim() };
+  return { channelId, guildId, bearerToken, stateFile, translateUrl, translateKey: env.NIKITA_X_TRANSLATE_API_KEY?.trim() };
 }
 
 export { requiredEnvVars, requiredWebEnvVars };
