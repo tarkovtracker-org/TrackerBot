@@ -5,7 +5,15 @@ import { handleButtonInteraction } from "../src/interactions/buttonHandlers.js";
 
 const originalCategoryId = process.env.TICKET_CATEGORY_ID;
 const originalStaffIds = process.env.TICKET_STAFF_ROLE_IDS;
-beforeEach(t => t.mock.method(console, "warn", () => {}));
+beforeEach(t => {
+  t.mock.method(console, "warn", () => {});
+  const supportEnv = Object.entries(process.env).filter(([name]) => name.startsWith("SUPPORT_"));
+  for (const [name] of supportEnv) delete process.env[name];
+  t.after(() => {
+    delete process.env.SUPPORT_TRACKER_CHANNEL_ID;
+    for (const [name, value] of supportEnv) process.env[name] = value;
+  });
+});
 afterEach(() => {
   if (originalCategoryId === undefined) delete process.env.TICKET_CATEGORY_ID;
   else process.env.TICKET_CATEGORY_ID = originalCategoryId;
@@ -97,6 +105,18 @@ test("existing Support category works without new configuration, even with a col
 test("legacy category matching tolerates case and surrounding whitespace", async () => {
   const f = await run(fixture([category({ name: "  🆘 --- SUPPORT ---  " })]));
   assert.equal(title(f), "Ticket ready");
+});
+
+test("legacy ticket creation stops if help desk configuration changes during acknowledgement", async () => {
+  const f = fixture();
+  const defer = f.interaction.deferReply;
+  f.interaction.deferReply = async options => {
+    await defer(options);
+    process.env.SUPPORT_TRACKER_CHANNEL_ID = "1536428726756311110";
+  };
+  await run(f);
+  assert.equal(f.created.length, 0);
+  assert.match(f.replies[0].content, /Support settings changed/);
 });
 
 test("configured category ID takes precedence and survives arbitrary names", async () => {

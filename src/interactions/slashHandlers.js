@@ -5,6 +5,7 @@ import { executeArchive } from "../commands/archiveCommand.js";
 import { executeWipe } from "../commands/wipeCommand.js";
 import { executeNuke } from "../commands/nukeCommand.js";
 import { executeSupport } from "../commands/supportCommand.js";
+import { executeDestinations } from "../commands/destinationsCommand.js";
 import { handleSupportInteraction } from "./supportHandlers.js";
 
 // One in-flight moderation action per guild/channel, including its confirmation.
@@ -19,6 +20,10 @@ export async function handleChatInputCommand(interaction) {
   }
   if (interaction.commandName === "tt") {
     await executeResource(interaction);
+    return true;
+  }
+  if (interaction.commandName === "destinations") {
+    await executeDestinations(interaction);
     return true;
   }
   if (interaction.commandName === "ticket") {
