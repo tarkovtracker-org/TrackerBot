@@ -1,3 +1,5 @@
+import { isAbsolute } from "node:path";
+
 const requiredEnvVars = [
   "DISCORD_TOKEN",
   "WELCOME_CHANNEL_ID",
@@ -27,6 +29,22 @@ export function ensureWebEnvVars(env = process.env) {
   if (missing.length) {
     throw new Error(`Missing required environment variables for webserver: ${missing.join(", ")}`);
   }
+}
+
+export function getNikitaXFeedConfig(env = process.env) {
+  const channelId = env.NIKITA_X_CHANNEL_ID?.trim();
+  if (!channelId) return null;
+
+  const bearerToken = env.NIKITA_X_BEARER_TOKEN?.trim();
+  const stateFile = env.NIKITA_X_STATE_FILE?.trim();
+  const translateUrl = URL.parse(env.NIKITA_X_TRANSLATE_URL?.trim() ?? "");
+  if (!/^\d{17,20}$/.test(channelId) || !bearerToken || !stateFile || !isAbsolute(stateFile)
+      || translateUrl?.protocol !== "https:" || translateUrl.username || translateUrl.password
+      || translateUrl.search || translateUrl.hash) {
+    throw new Error("Invalid Nikita X feed configuration");
+  }
+
+  return { channelId, bearerToken, stateFile, translateUrl, translateKey: env.NIKITA_X_TRANSLATE_API_KEY?.trim() };
 }
 
 export { requiredEnvVars, requiredWebEnvVars };
