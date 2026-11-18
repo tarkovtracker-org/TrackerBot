@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import fs, { mkdtemp, readFile, rm } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { setImmediate as nextTurn } from "node:timers/promises";
+import { setImmediate as nextTurn, setTimeout as delay } from "node:timers/promises";
 import { ChannelType, Collection, Events, MessageFlags, PermissionsBitField } from "discord.js";
 import { handleChatInputCommand } from "../src/interactions/slashHandlers.js";
 import { getAffectedBotFeatures } from "../src/commands/nukeCommand.js";
-import { canConfigureDestinations, getDestinationId, getDestinationOverride, getPreviousTicketParent, initializeDestinations, withDestinationReadLock } from "../src/config/destinations.js";
+import { canConfigureDestinations, destinations, getDestinationId, getDestinationOverride, getPreviousTicketParent, initializeDestinations, updateDestination, withDestinationReadLock } from "../src/config/destinations.js";
 import { ensureHoneypotMessage, setupHoneypot } from "../src/handlers/honeypotHandler.js";
 import { writeJsonAtomically } from "../src/utils/writeJsonAtomically.js";
 
@@ -21,7 +22,8 @@ const noPermissions = new PermissionsBitField(0n);
 
 function env(t, name, value) {
   const previous = process.env[name];
-  process.env[name] = value;
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
   t.after(() => {
     if (previous === undefined) delete process.env[name];
     else process.env[name] = previous;
@@ -33,6 +35,7 @@ async function fixture(t) {
   t.after(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, "destinations.json");
   await initializeDestinations(path);
+  for (const { env: variable } of Object.values(destinations)) env(t, variable, undefined);
   env(t, "TRACKERBOT_DESTINATIONS_FILE", path);
   env(t, "NIKITA_X_GUILD_ID", guildId);
   env(t, "NIKITA_X_STATE_FILE", join(dir, "nikita.json"));
@@ -63,11 +66,19 @@ async function fixture(t) {
     memberPermissions: allPermissions
   };
   function addChannel(id, type = ChannelType.GuildText, properties = {}) {
+    const history = new Collection();
     channels.set(id, {
       id, type, guildId, name: "destination",
       permissionsFor: () => allPermissions,
-      messages: { fetch: async () => new Collection() },
-      send: async text => sent.push([id, text]),
+      messages: { fetch: async () => history },
+      async send(content) {
+        sent.push([id, content]);
+        const messageId = asId(100 + sent.length);
+        const message = { id: messageId, author: { id: asId(90), bot: true }, content,
+          async delete() { history.delete(messageId); } };
+        history.set(messageId, message);
+        return message;
+      },
       ...properties
     });
     return channels.get(id);
@@ -188,12 +199,15 @@ test("honeypot enforcement follows the new channel without restarting the bot", 
     channelId, guild: bot.guild, author: { id: userId }, member: { roles: { cache: new Collection() } },
     delete: async () => removals.push(channelId)
   });
-  await bot.run("set", "honeypot", first, { confirm: true });
-  await bot.run("set", "honeypot", second, { confirm: true });
+  assert.match(await bot.run("set", "honeypot", first, { confirm: true }), new RegExp(first.id));
+  await send(first.id);
+  assert.deepEqual(removals, [first.id]);
+  assert.match(await bot.run("set", "honeypot", second, { confirm: true }), new RegExp(second.id));
+  assert.equal((await first.messages.fetch()).size, 0);
   await send(first.id);
   await send(second.id);
-  assert.deepEqual(removals, [second.id]);
-  assert.deepEqual(bans, [userId]);
+  assert.deepEqual(removals, [first.id, second.id]);
+  assert.deepEqual(bans, [userId, userId]);
 });
 
 test("reset verifies a host honeypot outside the cache before activating it", async t => {
@@ -215,14 +229,35 @@ test("reset verifies a host honeypot outside the cache before activating it", as
   assert.deepEqual(bot.sent.map(([id]) => id), [first.id, fallback.id]);
 });
 
+test("a deleted host honeypot can be reset while an uncertain lookup leaves enforcement in place", async t => {
+  const bot = await fixture(t);
+  const first = bot.addChannel(asId(1));
+  await bot.run("set", "honeypot", first, { confirm: true });
+  env(t, "HONEYPOT_CHANNEL_ID", asId(2));
+  const fetch = bot.guild.channels.fetch;
+  let code = 50001;
+  bot.guild.channels.fetch = async (id, options) => {
+    if (id === asId(2)) throw Object.assign(new Error("Unavailable"), { code });
+    return fetch(id, options);
+  };
+  assert.match(await bot.run("reset", "honeypot"), /could not verify/);
+  assert.equal(getDestinationOverride(guildId, "honeypot"), first.id);
+  code = 10003;
+  assert.match(await bot.run("reset", "honeypot"), /host default is unavailable/);
+  assert.equal(getDestinationOverride(guildId, "honeypot"), undefined);
+  assert.equal((await first.messages.fetch()).size, 0);
+});
+
 test("an old history sweep cannot write a warning after the honeypot moves", async t => {
   const bot = await fixture(t);
   const old = bot.addChannel(asId(1));
   const next = bot.addChannel(asId(2));
   await bot.run("set", "honeypot", old, { confirm: true });
   const scanned = Promise.withResolvers();
+  const fetch = old.messages.fetch;
   old.messages.fetch = () => scanned.promise;
-  const sweep = ensureHoneypotMessage(old, () => getDestinationId(guildId, "honeypot") === old.id);
+  const sweep = ensureHoneypotMessage(old, asId(90), () => getDestinationId(guildId, "honeypot") === old.id);
+  old.messages.fetch = fetch;
   await bot.run("set", "honeypot", next, { confirm: true });
   scanned.resolve(new Collection());
   await sweep;
@@ -241,7 +276,8 @@ test("a honeypot move waits for an in-flight ban and its kick fallback", async t
   const started = Promise.withResolvers();
   const finishBan = Promise.withResolvers();
   const order = [];
-  next.send = async () => order.push("warning");
+  const send = next.send.bind(next);
+  next.send = async content => { order.push("warning"); return send(content); };
   bot.guild.bans = { create: async () => {
     started.resolve();
     await finishBan.promise;
@@ -286,6 +322,7 @@ test("clearing the destination store drops its overrides and prevents further wr
   const bot = await fixture(t);
   const channel = bot.addChannel(asId(1));
   await bot.run("set", "welcome", channel);
+  assert.equal(getDestinationOverride(guildId, "welcome"), channel.id);
   await initializeDestinations(null);
   assert.equal(canConfigureDestinations(), false);
   assert.equal(getDestinationOverride(guildId, "welcome"), undefined);
@@ -299,13 +336,17 @@ test("atomic writes sync the parent directory after replacing the file on POSIX"
   t.mock.method(fs, "open", async (directory, flags) => {
     assert.equal(directory, dirname(path));
     assert.equal(flags, "r");
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).test, true);
     operations.push("open");
     return { sync: async () => operations.push("sync"), close: async () => operations.push("close") };
   });
   try {
     Object.defineProperty(process, "platform", { ...platform, value: "linux" });
     syncBuiltinESMExports();
-    await writeJsonAtomically(path, { test: true }, () => operations.push("replaced"));
+    await writeJsonAtomically(path, { test: true }, () => {
+      assert.equal(JSON.parse(readFileSync(path, "utf8")).test, true);
+      operations.push("replaced");
+    });
     assert.deepEqual(operations, ["replaced", "open", "sync", "close"]);
     assert.equal(JSON.parse(await readFile(path, "utf8")).test, true);
   } finally {
@@ -313,4 +354,161 @@ test("atomic writes sync the parent directory after replacing the file on POSIX"
     syncBuiltinESMExports();
     Object.defineProperty(process, "platform", platform);
   }
+});
+
+test("a directory sync error reports the active setting and preserves the new warning", async t => {
+  const bot = await fixture(t);
+  const channel = bot.addChannel(asId(1));
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  t.mock.method(console, "warn", () => {});
+  t.mock.method(fs, "open", async () => ({
+    async sync() { throw Object.assign(new Error("Failed sync"), { code: "EIO" }); },
+    async close() {}
+  }));
+  try {
+    Object.defineProperty(process, "platform", { ...platform, value: "linux" });
+    syncBuiltinESMExports();
+    await assert.doesNotReject(async () => {
+      assert.match(await bot.run("set", "honeypot", channel, { confirm: true }), /could not confirm it will survive a crash/);
+    });
+    assert.equal(getDestinationId(guildId, "honeypot"), channel.id);
+    assert.equal((await channel.messages.fetch()).size, 1);
+    assert.equal(JSON.parse(await readFile(bot.path, "utf8")).guilds[guildId].honeypot, channel.id);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    Object.defineProperty(process, "platform", platform);
+  }
+});
+
+test("missing destination storage directory fails closed while a new file is allowed", async t => {
+  const { path } = await fixture(t);
+  await initializeDestinations(null);
+  await assert.rejects(initializeDestinations(join(dirname(path), "missing", "destinations.json")), { code: "ENOENT" });
+  assert.equal(canConfigureDestinations(), false);
+  await initializeDestinations(path);
+  assert.equal(canConfigureDestinations(), true);
+});
+
+test("one server's channel validation does not delay another server's write", async t => {
+  const { path } = await fixture(t);
+  const validating = Promise.withResolvers();
+  const validate = Promise.withResolvers();
+  const first = updateDestination(guildId, "welcome", asId(1), async () => {
+    validating.resolve();
+    await validate.promise;
+  });
+  await validating.promise;
+  const second = updateDestination(otherGuild, "welcome", asId(2), () => {});
+  const committed = await Promise.race([second.then(() => true), delay(500, false)]);
+  validate.resolve();
+  await Promise.all([first, second]);
+  assert.equal(committed, true);
+  const saved = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(saved.guilds[guildId].welcome, asId(1));
+  assert.equal(saved.guilds[otherGuild].welcome, asId(2));
+});
+
+test("honeypot activation checks the exact bot warning and rolls back only its new message on a failed write", async t => {
+  const bot = await fixture(t);
+  const previous = bot.addChannel(asId(1));
+  const target = bot.addChannel(asId(2));
+  await bot.run("set", "honeypot", previous, { confirm: true });
+  const [, warning] = bot.sent[0];
+  const fromOtherBot = await target.send(warning);
+  fromOtherBot.author.id = asId(91);
+  const partial = await target.send(warning.slice(0, -3));
+  t.mock.method(fs, "rename", async () => { throw Object.assign(new Error("Failed save"), { code: "EIO" }); });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(bot.run("set", "honeypot", target, { confirm: true }), /Failed save/);
+    assert.equal(bot.sent.length, 4);
+    assert.equal((await target.messages.fetch()).size, 2);
+    assert.deepEqual([...(await target.messages.fetch()).values()], [fromOtherBot, partial]);
+    assert.equal(getDestinationOverride(guildId, "honeypot"), previous.id);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  const existing = await target.send(warning);
+  await bot.run("set", "honeypot", target, { confirm: true });
+  assert.deepEqual([...(await target.messages.fetch()).values()], [fromOtherBot, partial, existing]);
+});
+
+test("a move waits for cleanup deletion and stops further deletes in the old channel", async t => {
+  const bot = await fixture(t);
+  const old = bot.addChannel(asId(1));
+  const next = bot.addChannel(asId(2));
+  const now = Date.now();
+  let clock = now - 20 * 24 * 60 * 60_000;
+  t.mock.method(Date, "now", () => clock);
+  await bot.run("set", "honeypot", old, { confirm: true });
+  await initializeDestinations(bot.path);
+  clock = now;
+  const handlers = new Map();
+  setupHoneypot({ user: { id: asId(90) }, guilds: { cache: new Map([[guildId, bot.guild]]) }, channels: { cache: bot.channels },
+    once: (event, handler) => handlers.set(event, handler), on() {} });
+  old.isTextBased = () => true;
+  const started = Promise.withResolvers();
+  const deleted = Promise.withResolvers();
+  const messages = await old.messages.fetch();
+  messages.set("1", { id: "1", author: { id: userId }, createdTimestamp: Date.now() - 24 * 60 * 60_000 });
+  messages.set("2", { id: "2", author: { id: userId }, createdTimestamp: now - 15 * 24 * 60 * 60_000 });
+  messages.set("3", { id: "3", author: { id: userId }, createdTimestamp: now - 21 * 24 * 60 * 60_000 });
+  const removals = [];
+  messages.get("2").delete = async () => removals.push("2");
+  messages.get("3").delete = async () => removals.push("3");
+  old.bulkDelete = async batch => { removals.push(...batch.map(msg => msg.id)); started.resolve(); await deleted.promise; };
+  const sweep = handlers.get(Events.ClientReady)();
+  await Promise.race([started.promise, sweep.then(() => assert.fail("Expected the cleanup to start"))]);
+  const move = bot.run("set", "honeypot", next, { confirm: true });
+  await nextTurn();
+  const before = getDestinationId(guildId, "honeypot");
+  deleted.resolve();
+  await Promise.all([move, sweep]);
+  assert.equal(before, old.id);
+  assert.equal(getDestinationId(guildId, "honeypot"), next.id);
+  assert.deepEqual(removals, ["1"]);
+});
+
+test("honeypot cleanup preserves conversation posted before activation across a restart", async t => {
+  const bot = await fixture(t);
+  const channel = bot.addChannel(asId(1));
+  const now = Date.now();
+  let clock = now - 2 * 24 * 60 * 60_000;
+  t.mock.method(Date, "now", () => clock);
+  await bot.run("set", "honeypot", channel, { confirm: true });
+  await initializeDestinations(bot.path);
+  clock = now;
+  const handlers = new Map();
+  setupHoneypot({ user: { id: asId(90) }, guilds: { cache: new Map([[guildId, bot.guild]]) },
+    channels: { cache: bot.channels }, once: (event, handler) => handlers.set(event, handler), on() {} });
+  channel.isTextBased = () => true;
+  const messages = await channel.messages.fetch();
+  messages.set("1", { id: "1", author: { id: userId }, createdTimestamp: now - 3 * 24 * 60 * 60_000 });
+  messages.set("2", { id: "2", author: { id: userId }, createdTimestamp: now - 24 * 60 * 60_000 });
+  const removed = [];
+  channel.bulkDelete = async batch => removed.push(...batch.map(message => message.id));
+  await handlers.get(Events.ClientReady)();
+  assert.deepEqual(removed, ["2"]);
+});
+
+test("a support conflict cannot block welcome changes and stale ticket locations cannot hide a category conflict", async t => {
+  const bot = await fixture(t);
+  const category = bot.addChannel(asId(1), ChannelType.GuildCategory);
+  const other = bot.addChannel(asId(2), ChannelType.GuildCategory);
+  const target = bot.addChannel(asId(3), ChannelType.GuildCategory);
+  env(t, "SUPPORT_ACCOUNT_CATEGORY_ID", category.id);
+  env(t, "SUPPORT_MODERATION_CATEGORY_ID", category.id);
+  const welcome = bot.addChannel(asId(4));
+  env(t, "WELCOME_CHANNEL_ID", asId(99));
+  assert.match(await bot.run("set", "welcome", welcome), new RegExp(welcome.id));
+  assert.match(await bot.run("reset", "welcome"), /host default is unavailable/);
+  await updateDestination(guildId, "support-account", other.id, () => ({ categoryId: category.id, ticketIds: [asId(5)] }));
+  const fresh = new Collection(bot.channels);
+  fresh.set(asId(5), { id: asId(5), parentId: category.id, type: ChannelType.GuildText });
+  env(t, "SUPPORT_MODERATION_CATEGORY_ID", target.id);
+  const fetch = bot.guild.channels.fetch;
+  bot.guild.channels.fetch = async (...args) => args.length ? fetch(...args) : fresh;
+  assert.match(await bot.run("set", "support-moderation", category), /separate categories/);
 });

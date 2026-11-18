@@ -1,7 +1,12 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { ChannelType, Collection, MessageFlags } from "discord.js";
 import { adminRoles } from "../src/config/constants.js";
+import { initializeDestinations, updateDestination } from "../src/config/destinations.js";
 import { executeNuke } from "../src/commands/nukeCommand.js";
 import { executeWipe } from "../src/commands/wipeCommand.js";
 
@@ -116,6 +121,32 @@ test("nuke aborts before cloning when a bot destination changes during confirmat
   assert.equal(f.events.includes("delete"), false);
   assert.match(f.edits.at(-1).content, /destinations for this channel changed/);
 });
+
+for (const change of ["admin access", "channel flags"]) {
+  test(`nuke checks ${change} after waiting for a destination update`, async t => {
+    const directory = await mkdtemp(join(tmpdir(), "trackerbot-nuke-"));
+    t.after(async () => {
+      await initializeDestinations(null);
+      await rm(directory, { recursive: true, force: true });
+    });
+    await initializeDestinations(join(directory, "destinations.json"));
+    const f = fixture("nuke");
+    const guild = f.interaction.guild;
+    guild.id = "100000000000000001";
+    const release = Promise.withResolvers();
+    const update = updateDestination(guild.id, "archive", "100000000000000002", () => release.promise);
+    const nuking = executeNuke(f.interaction);
+    await nextTurn();
+    const fetches = f.events.filter(event => event.startsWith("fetch-") && event !== "fetch-reply");
+    if (change === "admin access") guild.members.fetch = async () => ({ roles: { cache: new Collection() } });
+    else f.interaction.channel.flags = { bitfield: 1 };
+    release.resolve();
+    await Promise.all([update, nuking]);
+    assert.deepEqual(fetches, []);
+    assert.equal(f.events.includes("clone"), false);
+    assert.equal(f.events.includes("delete"), false);
+  });
+}
 
 for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe", executeWipe, "bulkDelete"]]) {
   test(`${name}: confirmation uses a fetched Message, not reply's undefined return`, async () => {

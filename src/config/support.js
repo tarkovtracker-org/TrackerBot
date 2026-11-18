@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { ChannelType, OverwriteType, PermissionFlagsBits } from "discord.js";
-import { getDestinationId } from "./destinations.js";
+import { getDestinationId, getPreviousTicketParent } from "./destinations.js";
 
 export const supportMenuId = "support:route:v1";
 export const supportProducts = {
@@ -52,13 +52,26 @@ function contactUrl(name) {
   return url.href;
 }
 
+function staffRoleIds(prefix) {
+  const name = `${prefix}_STAFF_ROLE_IDS`;
+  return [...new Set((process.env[name] ?? "").split(",").map(roleId => id(roleId.trim(), name)))];
+}
+
+function validateStaffRoles(guildId, roles, ticket) {
+  for (const roleId of ticket.roleIds) {
+    const role = roles.get(roleId);
+    if (!role || role.id === guildId || role.managed || role.guild.id !== guildId) {
+      throw new SupportConfigurationError(`A ${ticket.prefix}_STAFF_ROLE_IDS role is missing, managed, or @everyone.`);
+    }
+  }
+}
+
 export function getSupportConfig(guildId) {
   const products = Object.fromEntries(Object.entries(supportProducts).map(([key, value]) =>
     [key, { ...value, channelId: supportDestinationId(guildId, key, value.env) }]
   ));
   const tickets = Object.fromEntries(Object.entries(supportTicketTypes).map(([key, value]) => {
-    const roleIds = [...new Set((process.env[`${value.prefix}_STAFF_ROLE_IDS`] ?? "").split(",").map(roleId => id(roleId.trim(), `${value.prefix}_STAFF_ROLE_IDS`)))];
-    return [key, { ...value, categoryId: supportDestinationId(guildId, key, `${value.prefix}_CATEGORY_ID`), roleIds }];
+    return [key, { ...value, categoryId: supportDestinationId(guildId, key, `${value.prefix}_CATEGORY_ID`), roleIds: staffRoleIds(value.prefix) }];
   }));
   if (tickets.account.categoryId === tickets.moderation.categoryId ||
       tickets.account.roleIds.some(roleId => tickets.moderation.roleIds.includes(roleId))) {
@@ -83,14 +96,27 @@ export async function loadSupportContext(guild) {
         !category.permissionsFor(bot)?.has(ticketBotAccess)) {
       throw new SupportConfigurationError(`The ${ticket.prefix}_CATEGORY_ID destination is missing or lacks the bot's required permissions.`);
     }
-    for (const roleId of ticket.roleIds) {
-      const role = roles.get(roleId);
-      if (!role || role.id === guild.id || role.managed || role.guild.id !== guild.id) {
-        throw new SupportConfigurationError(`A ${ticket.prefix}_STAFF_ROLE_IDS role is missing, managed, or @everyone.`);
-      }
-    }
+    validateStaffRoles(guild.id, roles, ticket);
   }
   return { config, channels, roles, bot };
+}
+
+export async function loadSupportTicket(guild, channelId) {
+  const channel = await guild.channels.fetch(channelId, { force: true });
+  const metadata = parseTicketTopic(channel?.topic);
+  if (channel?.type !== ChannelType.GuildText || channel.guildId !== guild.id || !metadata || !channel.parentId) return null;
+  const key = `support-${metadata.type}`;
+  if (channel.parentId !== getDestinationId(guild.id, key)
+      && channel.parentId !== getPreviousTicketParent(guild.id, key, channel.id)) return null;
+  const type = supportTicketTypes[metadata.type];
+  const ticket = { ...type, roleIds: staffRoleIds(type.prefix) };
+  const other = metadata.type === "account" ? supportTicketTypes.moderation : supportTicketTypes.account;
+  if ((process.env[`${other.prefix}_STAFF_ROLE_IDS`] ?? "").split(",").some(roleId => ticket.roleIds.includes(roleId.trim()))) {
+    throw new SupportConfigurationError("Account and moderation support need non-overlapping staff roles.");
+  }
+  const [roles, bot] = await Promise.all([guild.roles.fetch(), guild.members.fetchMe({ force: true })]);
+  validateStaffRoles(guild.id, roles, ticket);
+  return { channel, metadata, ticket, bot };
 }
 
 export function ticketConfirmationId(type, config) {

@@ -1,4 +1,5 @@
-import { isAbsolute, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 
 const requiredEnvVars = [
   "DISCORD_TOKEN",
@@ -30,6 +31,11 @@ export function ensureWebEnvVars(env = process.env) {
   }
 }
 
+function canonicalStatePath(file) {
+  const canonical = resolve(realpathSync.native(dirname(file)), basename(file));
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+}
+
 export function getNikitaXFeedConfig(env = process.env) {
   const channelId = env.NIKITA_X_CHANNEL_ID?.trim();
   const guildId = env.NIKITA_X_GUILD_ID?.trim();
@@ -41,10 +47,14 @@ export function getNikitaXFeedConfig(env = process.env) {
   const translateUrl = URL.parse(env.NIKITA_X_TRANSLATE_URL?.trim() ?? "");
   if ((channelId && !/^\d{17,20}$/.test(channelId)) || (guildId && !/^\d{17,20}$/.test(guildId))
       || !bearerToken || !stateFile || !isAbsolute(stateFile)
-      || (!channelId && (!destinationsFile || !isAbsolute(destinationsFile)))
-      || destinationsFile && resolve(destinationsFile) === resolve(stateFile)
+      || (!channelId && !destinationsFile) || (destinationsFile && !isAbsolute(destinationsFile))
       || translateUrl?.protocol !== "https:" || translateUrl.username || translateUrl.password
       || translateUrl.search || translateUrl.hash) {
+    throw new Error("Invalid Nikita X feed configuration");
+  }
+  try {
+    if (destinationsFile && canonicalStatePath(destinationsFile) === canonicalStatePath(stateFile)) throw new Error();
+  } catch {
     throw new Error("Invalid Nikita X feed configuration");
   }
 

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import fs, { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import fs, { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { ChannelType, PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import { getNikitaXFeedConfig } from "../src/config/env.js";
+import { initializeDestinations, updateDestination } from "../src/config/destinations.js";
 import { pollNikitaXFeed } from "../src/handlers/nikitaXFeed.js";
 
 const time = Date.parse("2026-05-12T11:04:00Z");
@@ -39,56 +40,65 @@ async function fixture(t) {
   const endpointHolds = new Map();
   let currentTime = time + 1000;
   let nextMessage = 100000000000000003n;
-  const channel = {
-    id: channelId,
-    guildId,
-    type: ChannelType.GuildText,
-    guild: { members: { async fetchMe({ force }) { assert.equal(force, true); return { fresh: true }; } } },
-    permissionsFor(member) {
-      const permissions = new PermissionsBitField(PermissionsBitField.All).remove(PermissionFlagsBits.Administrator);
-      if (channel.noHistory || member.fresh && channel.hideHistory) permissions.remove(PermissionFlagsBits.ReadMessageHistory);
-      if (channel.noAttachments) permissions.remove(PermissionFlagsBits.AttachFiles);
-      return permissions;
-    },
-    async send(payload) {
-      nextMessage++;
-      const id = nextMessage.toString();
-      const message = {
-        id, createdTimestamp: currentTime, author: { id: botId },
-        embeds: payload.embeds.map(embed => embed.toJSON?.() ?? embed)
-      };
-      messages.set(id, message);
-      operations.push({ type: "send", id, payload, channelId: this.id });
-      if (channel.loseResponse) throw new Error("Discord accepted the send before the connection dropped");
-      return message;
-    },
-    messages: {
-      async fetch({ before, limit, message }) {
-        if (message) return messages.get(message);
-        if (channel.restoreHistoryAfterRead) {
-          channel.restoreHistoryAfterRead = false;
-          return new Map();
+  function makeChannel(id, messages) {
+    const channel = {
+      id,
+      guildId,
+      type: ChannelType.GuildText,
+      guild: { members: { async fetchMe({ force }) { assert.equal(force, true); return { fresh: true }; } } },
+      permissionsFor(member) {
+        const permissions = new PermissionsBitField(PermissionsBitField.All).remove(PermissionFlagsBits.Administrator);
+        if (channel.noView) permissions.remove(PermissionFlagsBits.ViewChannel);
+        if (channel.noHistory || member.fresh && channel.hideHistory) permissions.remove(PermissionFlagsBits.ReadMessageHistory);
+        if (channel.noAttachments) permissions.remove(PermissionFlagsBits.AttachFiles);
+        return permissions;
+      },
+      async send(payload) {
+        if (channel.rejectSend) throw new Error("Send was not accepted");
+        nextMessage++;
+        const id = nextMessage.toString();
+        const message = {
+          id, createdTimestamp: currentTime, author: { id: botId },
+          embeds: payload.embeds.map(embed => embed.toJSON?.() ?? embed),
+          attachments: new Map(payload.files.map(({ name }, index) => [`${id}-${index}`, { id: `${id}-${index}`, name }]))
+        };
+        messages.set(id, message);
+        operations.push({ type: "send", id, payload, channelId: this.id });
+        if (channel.loseResponse) throw new Error("Discord accepted the send before the connection dropped");
+        return message;
+      },
+      messages: {
+        async fetch({ before, limit, message }) {
+          if (message) return messages.get(message);
+          if (channel.restoreHistoryAfterRead) {
+            channel.restoreHistoryAfterRead = false;
+            return new Map();
+          }
+          if (channel.hideHistory) return new Map();
+          return new Map([...messages].reverse().filter(([id]) => !before || id < before).slice(0, limit));
+        },
+        async edit(id, payload) {
+          if (channel.messageDisappears) {
+            messages.delete(id);
+            throw Object.assign(new Error("Unknown Message"), { code: 10008 });
+          }
+          const message = messages.get(id);
+          assert.ok(message);
+          message.embeds = payload.embeds.map(embed => embed.toJSON?.() ?? embed);
+          operations.push({ type: "edit", id, payload });
+          if (channel.loseEditResponse) throw new Error("Discord accepted the edit before the connection dropped");
+        },
+        async delete(id) {
+          assert.ok(messages.delete(id));
+          operations.push({ type: "delete", id });
         }
-        if (channel.hideHistory) return new Map();
-        return new Map([...messages].reverse().filter(([id]) => !before || id < before).slice(0, limit));
-      },
-      async edit(id, payload) {
-        const message = messages.get(id);
-        assert.ok(message);
-        message.embeds = payload.embeds.map(embed => embed.toJSON?.() ?? embed);
-        operations.push({ type: "edit", id, payload });
-        if (channel.loseEditResponse) throw new Error("Discord accepted the edit before the connection dropped");
-      },
-      async delete(id) {
-        assert.ok(messages.delete(id));
-        operations.push({ type: "delete", id });
       }
-    }
-  };
-  const alternate = { ...channel, id: otherChannelId, messages: {
-    ...channel.messages,
-    async delete() { assert.fail("A receipt from the original channel must not be removed in the new channel"); }
-  } };
+    };
+    return channel;
+  }
+  const alternateMessages = new Map();
+  const channel = makeChannel(channelId, messages);
+  const alternate = makeChannel(otherChannelId, alternateMessages);
   const client = {
     user: { id: botId },
     channels: {
@@ -102,7 +112,7 @@ async function fixture(t) {
   };
 
   const feed = {
-    config, env, channel, alternate, operations, calls, messages,
+    config, env, channel, alternate, operations, calls, messages, alternateMessages,
     get time() { return currentTime; },
     timeline: () => ({ meta: { result_count: 0 } }),
     lookup: () => assert.fail("Unexpected X post lookup"),
@@ -181,6 +191,20 @@ test("a guild-only feed requires a destination store the server can write to", a
   assert.throws(() => getNikitaXFeedConfig(env), /Invalid Nikita X feed/);
   env.TRACKERBOT_DESTINATIONS_FILE = config.stateFile + ".destinations";
   assert.equal(getNikitaXFeedConfig(env).guildId, guildId);
+});
+
+test("feed state and Discord settings cannot alias the same file through a parent link", async t => {
+  const { env, config } = await fixture(t);
+  const directory = dirname(config.stateFile);
+  const actual = join(directory, "state");
+  const alias = join(directory, "alias");
+  await mkdir(actual);
+  await symlink(actual, alias, "junction");
+  env.NIKITA_X_STATE_FILE = join(actual, "feed.json");
+  env.TRACKERBOT_DESTINATIONS_FILE = join(alias, "feed.json");
+  assert.throws(() => getNikitaXFeedConfig(env), /Invalid Nikita X feed/);
+  env.TRACKERBOT_DESTINATIONS_FILE = join(alias, "destinations.json");
+  assert.equal(getNikitaXFeedConfig(env).stateFile, env.NIKITA_X_STATE_FILE);
 });
 
 test("seeds without backfill, paginates oldest first and mirrors replies, quotes, images and translation", async t => {
@@ -598,4 +622,134 @@ test("a deleted pending destination cannot block delivery to the new channel", a
   const checkpoint = await feed.read();
   assert.equal(checkpoint.pending, null);
   assert.equal(checkpoint.published[entry.id].channelId, otherChannelId);
+});
+
+test("a destination change during the X fetch reroutes the next delivery", async t => {
+  const feed = await fixture(t);
+  const store = join(dirname(feed.config.stateFile), "destinations.json");
+  await initializeDestinations(store);
+  t.after(() => initializeDestinations(null));
+  feed.config.guildId = guildId;
+  await feed.seed();
+  const entry = post(2);
+  feed.timeline = async () => {
+    await updateDestination(guildId, "nikita", otherChannelId, () => {});
+    return { data: [entry] };
+  };
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [otherChannelId]);
+  assert.equal((await feed.read()).published[entry.id].channelId, otherChannelId);
+});
+
+test("an unsent pending alert follows the new destination after checking old history", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const entry = post(2);
+  feed.timeline = () => ({ data: [entry] });
+  feed.channel.rejectSend = true;
+  await assert.rejects(feed.poll(), /not accepted/);
+  feed.channel.rejectSend = false;
+  feed.config.guildId = guildId;
+  feed.config.channelId = otherChannelId;
+  feed.lookup = () => ({ data: [entry] });
+  await feed.poll();
+  assert.equal(feed.messages.size, 0);
+  assert.equal(feed.alternateMessages.size, 1);
+  assert.equal((await feed.read()).published[entry.id].channelId, otherChannelId);
+});
+
+test("pending recovery retains a successful translation and attachment for the same version", async t => {
+  const feed = await fixture(t);
+  const entry = post(2, { lang: "ru", text: "Привет из России" });
+  await feed.seed();
+  feed.timeline = () => ({ data: [entry] });
+  feed.translate = () => ({ translatedText: "An English translation ".repeat(80) });
+  feed.channel.loseResponse = true;
+  await assert.rejects(feed.poll(), /accepted the send/);
+  const [attachment] = [...feed.messages.values()][0].attachments.values();
+  feed.channel.loseResponse = false;
+  feed.lookup = () => ({ data: [entry] });
+  feed.translate = () => new Response(null, { status: 503 });
+  await feed.poll();
+  const { payload } = feed.operations.at(-1);
+  assert.equal(payload.embeds[0].toJSON().fields?.[0]?.value, "Translation attached.");
+  assert.deepEqual(payload.attachments, [{ id: attachment.id }]);
+  assert.equal((await feed.read()).published[entry.id].retryTranslationAt, 0);
+});
+
+test("pending delivery retries in the active channel when the receipt disappears before edit", async t => {
+  const feed = await fixture(t);
+  const entry = post(2);
+  await feed.seed();
+  feed.timeline = () => ({ data: [entry] });
+  feed.channel.loseResponse = true;
+  await assert.rejects(feed.poll(), /accepted the send/);
+  feed.channel.loseResponse = false;
+  feed.channel.messageDisappears = true;
+  feed.config.guildId = guildId;
+  feed.config.channelId = otherChannelId;
+  feed.lookup = () => ({ data: [entry] });
+  await feed.poll();
+  assert.equal(feed.messages.size, 0);
+  assert.equal(feed.alternateMessages.size, 1);
+  assert.equal((await feed.read()).published[entry.id].channelId, otherChannelId);
+});
+
+test("inaccessible pending recovery survives a restart and does not block newer alerts", async t => {
+  const feed = await fixture(t);
+  feed.config.guildId = guildId;
+  await feed.seed();
+  const pending = post(2);
+  const newPost = post(3);
+  feed.timeline = () => ({ data: [pending] });
+  feed.channel.loseResponse = true;
+  await assert.rejects(feed.poll(), /accepted the send/);
+  feed.channel.loseResponse = false;
+  feed.channel.noView = true;
+  feed.config.channelId = otherChannelId;
+  feed.timeline = () => ({ data: [pending, newPost] });
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  const parked = await feed.read();
+  assert.equal(parked.pending, null);
+  assert.equal(parked.recoveries[pending.id].channelId, channelId);
+  assert.equal(parked.sinceId, newPost.id);
+  assert.equal(feed.alternateMessages.size, 1);
+  feed.channel.noView = false;
+  feed.timeline = () => ({ meta: { result_count: 0 } });
+  feed.lookup = () => ({ data: [pending] });
+  await feed.poll();
+  const recovered = await feed.read();
+  assert.equal(recovered.recoveries[pending.id], undefined);
+  assert.equal(recovered.published[pending.id].channelId, channelId);
+  assert.equal(recovered.sinceId, newPost.id);
+  assert.equal(feed.messages.size, 1);
+  assert.equal(feed.alternateMessages.size, 1);
+  assert.deepEqual(feed.operations.map(operation => operation.type), ["send", "send", "edit"]);
+});
+
+test("a retired receipt can retry a timeline edit after later posts are sent", async t => {
+  const feed = await fixture(t);
+  feed.config.guildId = guildId;
+  await feed.seed();
+  const old = post(2);
+  feed.timeline = () => ({ data: [old] });
+  await feed.poll();
+  const revision = post(3, { text: "Edited", edit_history_tweet_ids: [old.id, xId(3)] });
+  const newPost = post(4);
+  feed.channel.noView = true;
+  feed.config.channelId = otherChannelId;
+  feed.timeline = () => ({ data: [revision, newPost] });
+  await assert.doesNotReject(feed.poll());
+  const waiting = await feed.read();
+  assert.equal(waiting.published[old.id].versionId, old.id);
+  assert.ok(waiting.published[old.id].nextReviewAt < feed.time + 12 * 60 * 60_000);
+  assert.equal(waiting.sinceId, newPost.id);
+  assert.equal(feed.alternateMessages.size, 1);
+  feed.channel.noView = false;
+  feed.advance(120_000);
+  feed.timeline = () => ({ meta: { result_count: 0 } });
+  feed.lookup = () => ({ data: [revision] });
+  await feed.poll();
+  assert.equal((await feed.read()).published[old.id].versionId, revision.id);
+  assert.equal([...feed.messages.values()][0].embeds[0].description, "Edited");
 });

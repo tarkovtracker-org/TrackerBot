@@ -136,50 +136,50 @@ export async function executeNuke(interaction) {
 
     await buttonInteraction.deferUpdate();
 
-    // Authority may have changed while the confirmation was open; bypass cache.
-    const member = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
-    if (!hasAdminRole(member.roles.cache)) {
-      await interaction.editReply({
-        embeds: [createCardEmbed({
-          title: "Permission Required",
-          description: "Your admin access has changed. Nothing was deleted.",
-          color: colors.error
-        })],
-        components: []
-      });
-      return;
-    }
-
     const guild = interaction.guild;
-    const oldChannel = await guild.channels.fetch(channel.id, { force: true });
-    if (oldChannel?.type !== ChannelType.GuildText || oldChannel.flags?.bitfield) {
-      await interaction.editReply({
-        content: "The channel settings changed and cannot be cloned safely. Nothing was deleted.",
-        embeds: [], components: []
-      });
-      return;
-    }
-
-    // Clone the channel with all carry-over properties.
-    const cloneOptions = {
-      name: oldChannel.name,
-      type: oldChannel.type,
-      topic: oldChannel.topic,
-      nsfw: oldChannel.nsfw,
-      rateLimitPerUser: oldChannel.rateLimitPerUser,
-      parent: oldChannel.parentId,
-      permissionOverwrites: oldChannel.permissionOverwrites.cache,
-      reason: `/nuke by ${interaction.user.tag}`
-    };
-
-    if (oldChannel.defaultAutoArchiveDuration) {
-      cloneOptions.defaultAutoArchiveDuration = oldChannel.defaultAutoArchiveDuration;
-    }
-    if (oldChannel.defaultThreadRateLimitPerUser != null) {
-      cloneOptions.defaultThreadRateLimitPerUser = oldChannel.defaultThreadRateLimitPerUser;
-    }
-
     const result = await withDestinationReadLock(guild.id, async () => {
+      // Authority may have changed while the confirmation was open; bypass cache.
+      const member = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
+      if (!hasAdminRole(member.roles.cache)) {
+        await interaction.editReply({
+          embeds: [createCardEmbed({
+            title: "Permission Required",
+            description: "Your admin access has changed. Nothing was deleted.",
+            color: colors.error
+          })],
+          components: []
+        });
+        return;
+      }
+
+      const oldChannel = await guild.channels.fetch(channel.id, { force: true });
+      if (oldChannel?.type !== ChannelType.GuildText || oldChannel.flags?.bitfield) {
+        await interaction.editReply({
+          content: "The channel settings changed and cannot be cloned safely. Nothing was deleted.",
+          embeds: [], components: []
+        });
+        return;
+      }
+
+      // Clone the channel with all carry-over properties.
+      const cloneOptions = {
+        name: oldChannel.name,
+        type: oldChannel.type,
+        topic: oldChannel.topic,
+        nsfw: oldChannel.nsfw,
+        rateLimitPerUser: oldChannel.rateLimitPerUser,
+        parent: oldChannel.parentId,
+        permissionOverwrites: oldChannel.permissionOverwrites.cache,
+        reason: `/nuke by ${interaction.user.tag}`
+      };
+
+      if (oldChannel.defaultAutoArchiveDuration) {
+        cloneOptions.defaultAutoArchiveDuration = oldChannel.defaultAutoArchiveDuration;
+      }
+      if (oldChannel.defaultThreadRateLimitPerUser != null) {
+        cloneOptions.defaultThreadRateLimitPerUser = oldChannel.defaultThreadRateLimitPerUser;
+      }
+
       const currentFeatures = getAffectedBotFeatures(channel.id, interaction.guildId);
       if (JSON.stringify(currentFeatures) !== JSON.stringify(affectedFeatures)) {
         await interaction.editReply({

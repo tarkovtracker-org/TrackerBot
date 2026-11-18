@@ -1,5 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
-import { isSupportConfigured, loadSupportContext, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketOverwrites, ticketTopic } from "../config/support.js";
+import { isSupportConfigured, loadSupportContext, loadSupportTicket, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketOverwrites, ticketTopic } from "../config/support.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { getPreviousTicketParent, withDestinationReadLock } from "../config/destinations.js";
 import { noMentions } from "../utils/messageReply.js";
@@ -39,15 +39,13 @@ export async function handleSupportInteraction(interaction) {
       operations.add(key);
       ownsLock = true;
       return await withDestinationReadLock(interaction.guildId, async () => {
-        const { config, bot } = await loadSupportContext(interaction.guild);
+        const { config, bot, channels } = await loadSupportContext(interaction.guild);
         if (actionId !== ticketConfirmationId(type, config)) {
           await interaction.editReply({ content: "The ticket audience or destination changed. Select your support option again to review the current privacy notice before opening a ticket." });
           return true;
         }
         const ticket = config.tickets[type];
-        // Fetch inside the lock: a prior create may have completed during configuration checks.
-        const currentChannels = await interaction.guild.channels.fetch();
-        const existing = currentChannels.find(channel => channel?.parentId && (channel.parentId === ticket.categoryId
+        const existing = channels.find(channel => channel?.parentId && (channel.parentId === ticket.categoryId
           || channel.parentId === getPreviousTicketParent(interaction.guildId, `support-${type}`, channel.id)) &&
           (parseTicketTopic(channel.topic)?.ownerId === interaction.user.id && parseTicketTopic(channel.topic)?.type === type ||
             type === "account" && channel.topic === `Ticket for ${interaction.user.id}`));
@@ -73,9 +71,8 @@ export async function handleSupportInteraction(interaction) {
       });
     }
 
-    const context = await loadSupportContext(interaction.guild);
-    const { config, channels, bot } = context;
     if (menu || legacy) {
+      const { config, channels } = await loadSupportContext(interaction.guild);
       const value = legacy ? "account" : interaction.values.length === 1 ? interaction.values[0] : "";
       const product = Object.hasOwn(config.products, value) ? config.products[value] : null;
       if (product) {
@@ -113,16 +110,13 @@ export async function handleSupportInteraction(interaction) {
     }
     operations.add(key);
     ownsLock = true;
-    const channel = await interaction.guild.channels.fetch(interaction.channelId, { force: true });
-    const metadata = parseTicketTopic(channel?.topic);
-    const ticket = metadata && config.tickets[metadata.type];
-    if (channel?.type !== ChannelType.GuildText || !ticket
-        || !channel.parentId || (channel.parentId !== ticket.categoryId
-          && channel.parentId !== getPreviousTicketParent(interaction.guildId, `support-${metadata.type}`, channel.id))
-        || channel.guildId !== interaction.guildId) {
+    const context = await withDestinationReadLock(interaction.guildId,
+      () => loadSupportTicket(interaction.guild, interaction.channelId));
+    if (!context) {
       await interaction.editReply({ content: "This is not a managed support ticket. Nothing changed." });
       return true;
     }
+    const { channel, metadata, ticket, bot } = context;
     const member = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
     const staff = ticket.roleIds.some(roleId => member.roles.cache.has(roleId));
     const state = actionId === "support:close:v1" ? "closed" : "open";

@@ -1,7 +1,12 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { ChannelType, Collection, MessageFlags, PermissionsBitField, PermissionFlagsBits } from "discord.js";
 import { adminRoles, allowedCommandRoles, hasAdminRole } from "../src/config/constants.js";
+import { initializeDestinations, updateDestination } from "../src/config/destinations.js";
 import { getResourceLinks } from "../src/config/resources.js";
 import { messageReference } from "../src/utils/messageReply.js";
 import { handleChatInputCommand } from "../src/interactions/slashHandlers.js";
@@ -265,7 +270,8 @@ for (const configured of [true, false]) {
   test(`archive aborts when its ${configured ? "configured" : "name-based"} category changes during the final permission checks`, async () => {
     if (configured) process.env.ARCHIVE_CATEGORY_ID = categoryId;
     const f = fixture("channel", { action: "archive" });
-    const replacement = { id: "555555555555555555", type: ChannelType.GuildCategory, name: "Archive" };
+    const fallback = { id: "666666666666666666", type: ChannelType.GuildCategory, name: "Archive" };
+    const replacement = { id: "555555555555555555", type: ChannelType.GuildCategory, name: configured ? "Configured" : "Archive" };
     const fetch = f.interaction.guild.channels.fetch;
     let changed = false;
     f.interaction.guild.channels.fetch = async id => {
@@ -274,13 +280,37 @@ for (const configured of [true, false]) {
         if (configured) process.env.ARCHIVE_CATEGORY_ID = replacement.id;
         return fetch(id);
       }
-      return changed ? new Collection([[replacement.id, replacement]]) : fetch();
+      if (!configured) return changed ? new Collection([[replacement.id, replacement]]) : fetch();
+      const channels = await fetch();
+      channels.get(categoryId).name = "Configured";
+      channels.set(fallback.id, fallback);
+      channels.set(replacement.id, replacement);
+      return channels;
     };
     await run(f);
     assert.equal(f.channelEdits.length, 0);
     assert.match(f.edits.at(-1).content, /archive destination changed/);
   });
 }
+
+test("archive rechecks the requester after waiting for a destination write", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "trackerbot-archive-"));
+  t.after(async () => {
+    await initializeDestinations(null);
+    await rm(directory, { recursive: true, force: true });
+  });
+  await initializeDestinations(join(directory, "destinations.json"));
+  const f = fixture("channel", { action: "archive" });
+  const release = Promise.withResolvers();
+  const update = updateDestination(guildId, "welcome", channelId, () => release.promise);
+  const archiving = run(f);
+  await nextTurn();
+  f.interaction.guild.members.fetch = async () => ({ roles: { cache: new Collection() } });
+  release.resolve();
+  await Promise.all([update, archiving]);
+  assert.equal(f.channelEdits.length, 0);
+  assert.match(f.edits.at(-1).content, /admin access has changed/);
+});
 
 test("two overlapping channel operations cannot both open or mutate; the lock releases afterward", async () => {
   const first = fixture("channel", { action: "archive" });

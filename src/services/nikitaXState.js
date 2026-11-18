@@ -5,6 +5,9 @@ import { writeJsonAtomically } from "../utils/writeJsonAtomically.js";
 const isTime = value => Number.isSafeInteger(value) && value >= 0;
 const isMessageId = value => typeof value === "string" && /^\d{17,20}$/.test(value);
 
+const isPending = item => isPostId(item?.id) && isPostId(item.sourceId) && isPostId(item.versionId)
+  && (item.channelId === undefined || isMessageId(item.channelId)) && isTime(item.startedAt);
+
 function stateError() {
   return Object.assign(new Error("Invalid Nikita X feed state or destination changed"), { code: "X_FEED_STATE" });
 }
@@ -31,10 +34,10 @@ export async function loadNikitaXState(file, channelId, guildId) {
         && isPostId(item.versionId) && typeof item.mediaComplete === "boolean"
         && (item.channelId === undefined || isMessageId(item.channelId))
         && isTime(item.retryTranslationAt) && isTime(item.nextReviewAt))
-      || (state.pending !== null && (!isPostId(state.pending?.id) || !isPostId(state.pending.sourceId)
-        || !isPostId(state.pending.versionId)
-        || (state.pending.channelId !== undefined && !isMessageId(state.pending.channelId))
-        || !isTime(state.pending.startedAt)))) {
+      || (state.pending !== null && !isPending(state.pending))
+      || (state.recoveries !== undefined && (!state.recoveries || typeof state.recoveries !== "object"
+        || Array.isArray(state.recoveries) || !Object.entries(state.recoveries).every(([id, item]) =>
+          isPending(item) && id === item.sourceId && isMessageId(item.channelId))))) {
     throw stateError();
   }
   return state;

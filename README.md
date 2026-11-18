@@ -220,7 +220,8 @@ channel IDs remain defaults. A welcome channel can be supplied either way.
 Changing a ticket category routes new tickets there. Previously managed tickets
 can still be closed or reopened in their original category. The honeypot must use
 a dedicated channel. Set `confirm_honeypot` when choosing it, since posting there
-can trigger a ban. TrackerBot prepares the warning before switching.
+can trigger a ban. TrackerBot prepares the warning before switching and
+preserves messages from before activation when a server admin chooses the channel.
 
 ## Nikita's X feed
 
@@ -236,16 +237,17 @@ on one bot instance:
 - `NIKITA_X_CHANNEL_ID` is the destination channel. Give the bot View Channel, Send Messages,
   Embed Links, Attach Files, and Read Message History.
 - `NIKITA_X_GUILD_ID` is the server allowed to manage the feed through
-  `/destinations set destination:nikita`. In that server, the Discord setting
-  takes precedence over the host's channel ID. Leaving both channel settings
+  `/destinations set destination:nikita`. Guild-only setup requires an absolute
+  `TRACKERBOT_DESTINATIONS_FILE`. Channel-ID-only setup can omit that file.
+  In the server, the Discord setting takes precedence over the host's channel ID. Leaving both channel settings
   empty pauses new delivery. X and translator credentials stay on the host.
 - `NIKITA_X_BEARER_TOKEN` is an X app-only token with User Lookup, User Posts timeline,
   and Post Lookup access.
 - `NIKITA_X_STATE_FILE` is an absolute file path under an existing writable, persistent
   directory. The file tracks post and Discord message IDs across restarts. Run one
   feed instance at a time, including during deploys, and preserve this file.
-  With a guild ID configured, a channel change affects new alerts on the next
-  poll. The bot keeps checking existing alerts in their original channels.
+  With a guild ID configured, a channel change affects new alerts. The bot keeps
+  checking existing alerts in their original channels.
   Keep access to those channels for edits and removals.
 - `NIKITA_X_TRANSLATE_URL` is the HTTPS `/translate` URL for your LibreTranslate-compatible
   service. Post text is sent there for translation when needed. Set

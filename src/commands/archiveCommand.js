@@ -51,32 +51,27 @@ export async function executeArchive(interaction) {
       await interaction.editReply({ content: "Archive cancelled. Nothing changed.", embeds: [], components: [] });
       return;
     }
-    const member = await guild.members.fetch({ user: interaction.user.id, force: true });
-    if (!hasAdminRole(member.roles.cache)) {
-      await interaction.editReply({ content: "Your admin access has changed. Nothing changed.", embeds: [], components: [] });
-      return;
-    }
-    const roles = await guild.roles.fetch();
-    if (!adminRoles.size || [...adminRoles].some(id => id === guild.id || !roles.has(id))) {
-      throw Object.assign(new Error("Configured archive admin roles are invalid in this guild"), { code: "ARCHIVE_ADMIN_ROLES_INVALID" });
-    }
-    const bot = await guild.members.fetchMe();
-    const channel = await guild.channels.fetch(interaction.channelId, { force: true });
-    if (channel?.type !== ChannelType.GuildText) {
-      throw Object.assign(new Error("Archive source is no longer a text channel"), { code: "ARCHIVE_SOURCE_INVALID" });
-    }
-    const staffAccess = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
-    const botAccess = [...staffAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
-    if (!channel.permissionsFor(bot)?.has(botAccess)) {
-      await interaction.editReply({
-        content: "The bot needs View Channel, Send Messages, Read Message History, Manage Channels and Manage Roles here. Nothing changed; ask a server administrator to review its permissions.",
-        embeds: [], components: []
-      });
-      return;
-    }
-    const archived = await withDestinationReadLock(guild.id, async () => {
+    const abortReason = await withDestinationReadLock(guild.id, async () => {
+      const roles = await guild.roles.fetch();
+      if (!adminRoles.size || [...adminRoles].some(id => id === guild.id || !roles.has(id))) {
+        throw Object.assign(new Error("Configured archive admin roles are invalid in this guild"), { code: "ARCHIVE_ADMIN_ROLES_INVALID" });
+      }
+      const bot = await guild.members.fetchMe();
+      const channel = await guild.channels.fetch(interaction.channelId, { force: true });
+      if (channel?.type !== ChannelType.GuildText) {
+        throw Object.assign(new Error("Archive source is no longer a text channel"), { code: "ARCHIVE_SOURCE_INVALID" });
+      }
+      const staffAccess = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
+      const botAccess = [...staffAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
+      if (!channel.permissionsFor(bot)?.has(botAccess)) {
+        return "The bot needs View Channel, Send Messages, Read Message History, Manage Channels and Manage Roles here. Nothing changed; ask a server administrator to review its permissions.";
+      }
       const current = archiveCategory(guild.id, await guild.channels.fetch());
-      if (current?.type !== ChannelType.GuildCategory || current.id !== category.id) return false;
+      if (current?.type !== ChannelType.GuildCategory || current.id !== category.id) {
+        return "The archive destination changed. Open a new preview.";
+      }
+      const member = await guild.members.fetch({ user: interaction.user.id, force: true });
+      if (!hasAdminRole(member.roles.cache)) return "Your admin access has changed. Nothing changed.";
       // One atomic channel edit: never inherit a public category's overwrites.
       await channel.edit({
         parent: current.id,
@@ -87,10 +82,9 @@ export async function executeArchive(interaction) {
         ],
         reason: `Private audit archive requested by ${interaction.user.id}`
       });
-      return true;
     });
-    if (!archived) {
-      await interaction.editReply({ content: "The archive destination changed. Open a new preview.", embeds: [], components: [] });
+    if (abortReason) {
+      await interaction.editReply({ content: abortReason, embeds: [], components: [] });
       return;
     }
     await interaction.editReply({ content: "Channel archived for staff review. History was retained; no messages were deleted.", embeds: [], components: [] }).catch(err => {

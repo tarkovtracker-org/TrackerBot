@@ -75,6 +75,7 @@ test("missing runtime join configuration cannot reject the event listener", asyn
 test("welcome cleanup uses the original destination after configuration changes", async () => {
   const f = fixture();
   await f.join();
+  assert.equal(f.messages.size, 1);
   delete process.env.WELCOME_CHANNEL_ID;
   await assert.doesNotReject(f.leave());
   assert.equal(f.messages.size, 0);

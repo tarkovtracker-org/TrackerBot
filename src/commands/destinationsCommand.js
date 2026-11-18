@@ -1,11 +1,11 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits as Permission } from "discord.js";
 import {
   destinations, canConfigureDestinations, getDestinationId, getDestinationOverride,
-  getPreviousTickets, ticketDestinationKeys, updateDestination
+  getPreviousTickets, ticketDestinationKeys, updateDestination, withDestinationReadLock
 } from "../config/destinations.js";
 import { getNikitaXFeedConfig } from "../config/env.js";
 import { parseTicketTopic } from "../config/support.js";
-import { ensureHoneypotMessage } from "../handlers/honeypotHandler.js";
+import { ensureHoneypotMessage, removeHoneypotWarnings } from "../handlers/honeypotHandler.js";
 import { noMentions } from "../utils/messageReply.js";
 
 class DestinationError extends Error {}
@@ -61,8 +61,13 @@ export async function executeDestinations(interaction) {
   const confirmed = interaction.options.getBoolean("confirm_honeypot");
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+  let unusedWarningChannel;
   try {
-    await updateDestination(guild.id, key, id, async settings => {
+    let restoredChannel;
+    let unavailableDefault = false;
+    let previousHoneypot;
+    let honeypotBotId;
+    const durable = await updateDestination(guild.id, key, id, async (settings, onRollback) => {
       const member = await guild.members.fetch({ user: interaction.user.id, force: true });
       if (!member.permissions.has(Permission.Administrator)) throw new DestinationError("Your server administrator access changed.");
 
@@ -74,57 +79,99 @@ export async function executeDestinations(interaction) {
       if (configured.honeypot && Object.entries(configured).some(([name, value]) => name !== "honeypot" && value === configured.honeypot)) {
         throw new DestinationError("Use a dedicated channel for the honeypot. It cannot share another bot destination.");
       }
-      function categoriesFor(name) {
-        const past = getPreviousTickets(guild.id, name)
-          .filter(([ticketId, category]) => guild.channels.cache.get(ticketId)?.parentId === category)
-          .map(([, category]) => category);
-        return [configured[name], ...past].filter(Boolean);
-      }
-      const accountCategories = categoriesFor("support-account");
-      const moderationCategories = categoriesFor("support-moderation");
-      if (accountCategories.some(category => moderationCategories.includes(category))) {
-        throw new DestinationError("Account and moderation tickets require separate categories.");
-      }
-      const target = id ?? (key === "honeypot" ? configured.honeypot : null);
+      const target = id ?? configured[key];
+      if (key === "honeypot") previousHoneypot = getDestinationId(guild.id, key);
       if (target) {
-        const channel = await guild.channels.fetch(target, { force: true }).catch(error => {
-          // The host fallback may explicitly belong to a different server.
-          if (!id && error?.code === "GuildChannelUnowned") return false;
-          if (!id) throw new DestinationError("The bot could not verify the host honeypot. The current destination is still active.");
-          throw error;
-        });
-        if (!id && channel === false) return;
-        const bot = await guild.members.fetchMe({ force: true });
-        if (!channel || channel.guildId !== guild.id || !types.includes(channel.type) || !channel.permissionsFor(bot)?.has(permissions)) {
+        let channel;
+        let bot;
+        let unavailable = false;
+        try {
+          channel = await guild.channels.fetch(target, { force: true });
+          if (channel) bot = await guild.members.fetchMe({ force: true });
+        } catch (error) {
+          if (id) throw error;
+          unavailable = ["GuildChannelUnowned", 10003].includes(error?.code);
+          if (key === "honeypot" && !unavailable) {
+            throw new DestinationError("The bot could not verify the host honeypot. The current destination is still active.");
+          }
+        }
+        const usable = bot && channel.guildId === guild.id && types.includes(channel.type) && channel.permissionsFor(bot)?.has(permissions);
+        if (!usable && (id || key === "honeypot" && channel)) {
           throw new DestinationError("Choose a channel or category in this server where TrackerBot has the required permissions.");
         }
-        if (key === "honeypot") {
+        if (!id && key === "honeypot" && !channel && !unavailable) {
+          throw new DestinationError("The bot could not verify the host honeypot. The current destination is still active.");
+        }
+        if (usable && key === "honeypot") {
           if (!confirmed) throw new DestinationError("Use confirm_honeypot to confirm that this channel can ban members who post.");
           if (!bot.permissions.any([Permission.BanMembers, Permission.KickMembers])) {
             throw new DestinationError("TrackerBot needs Ban Members or Kick Members for the honeypot.");
           }
-          await ensureHoneypotMessage(channel);
+          const warning = await ensureHoneypotMessage(channel, bot.id);
+          honeypotBotId = bot.id;
+          if (warning) onRollback(async () => {
+            try {
+              await warning.delete();
+            } catch (error) {
+              if (error?.code === 10008) return;
+              unusedWarningChannel = channel.id;
+              throw error;
+            }
+          });
+        }
+        if (!id) {
+          restoredChannel = usable ? target : undefined;
+          unavailableDefault = !usable;
         }
       }
+      if (key === "honeypot") return { honeypotChannelId: id ?? restoredChannel };
       if (!ticketDestinationKeys.has(key)) return;
       const current = getDestinationId(guild.id, key);
-      const previous = current ? guild.channels.cache.get(current) : key === "tickets"
-        ? guild.channels.cache.find(channel => channel.type === ChannelType.GuildCategory
-          && channel.name.trim().toLowerCase() === "🆘 --- support ---")
-        : null;
-      if (previous?.type === ChannelType.GuildCategory && previous.id !== configured[key]) {
-        const channels = await guild.channels.fetch();
-        const ticketIds = [...channels.values()].filter(channel => {
-          if (channel?.type !== ChannelType.GuildText || channel.parentId !== previous.id) return false;
-          if (["tickets", "support-account"].includes(key) && /^Ticket for \d{17,20}$/.test(channel.topic ?? "")) return true;
-          return `support-${parseTicketTopic(channel.topic)?.type}` === key;
-        }).map(channel => channel.id);
-        return { categoryId: previous.id, ticketIds };
+      if (current === configured[key]) return;
+      const channels = await guild.channels.fetch();
+      const previous = current ? channels.get(current) : key === "tickets"
+        ? channels.find(channel => channel.type === ChannelType.GuildCategory
+          && channel.name.trim().toLowerCase() === "🆘 --- support ---") : null;
+      if (key !== "tickets") {
+        const other = key === "support-account" ? "support-moderation" : "support-account";
+        const otherCategories = new Set([configured[other], ...getPreviousTickets(guild.id, other)
+          .filter(([id, category]) => channels.get(id)?.parentId === category).map(([, category]) => category)]);
+        if (configured[key] && otherCategories.has(configured[key])) {
+          throw new DestinationError("Account and moderation tickets require separate categories.");
+        }
       }
+      if (previous?.type !== ChannelType.GuildCategory || previous.id === configured[key]) return;
+      const ticketIds = [...channels.values()].filter(channel => {
+        if (channel?.type !== ChannelType.GuildText || channel.parentId !== previous.id) return false;
+        if (["tickets", "support-account"].includes(key) && /^Ticket for \d{17,20}$/.test(channel.topic ?? "")) return true;
+        return `support-${parseTicketTopic(channel.topic)?.type}` === key;
+      }).map(channel => channel.id);
+      return { categoryId: previous.id, ticketIds };
     });
-    const content = id ? `${label} now uses <#${id}>.` : `${label} now uses the host default.`;
+    let content = id ? `${label} now uses <#${id}>.` : restoredChannel ? `${label} now uses the host default <#${restoredChannel}>.`
+      : `${label} reset. ${unavailableDefault ? "The host default is unavailable in this server." : "No host default is set."}`;
+    if (previousHoneypot && previousHoneypot !== (id ?? restoredChannel)) {
+      try {
+        await withDestinationReadLock(guild.id, async () => {
+          if (getDestinationId(guild.id, "honeypot") === previousHoneypot) return;
+          const channel = await guild.channels.fetch(previousHoneypot, { force: true });
+          if (channel?.guildId !== guild.id || channel.type !== ChannelType.GuildText) return;
+          const botId = honeypotBotId ?? (await guild.members.fetchMe({ force: true })).id;
+          await removeHoneypotWarnings(channel, botId);
+        });
+      } catch (error) {
+        if (!["GuildChannelUnowned", 10003].includes(error?.code)) {
+          content += ` Check <#${previousHoneypot}> for TrackerBot's old honeypot warning.`;
+        }
+      }
+    }
+    if (!durable) content += " The reset or change is active. The bot could not confirm it will survive a crash.";
     await interaction.editReply({ content, allowedMentions: noMentions });
   } catch (error) {
+    if (unusedWarningChannel) {
+      await interaction.editReply({ content: `The honeypot setting could not be saved. Check <#${unusedWarningChannel}> for the unused warning.`, allowedMentions: noMentions });
+      return;
+    }
     if (error instanceof DestinationError) {
       await interaction.editReply({ content: error.message, allowedMentions: noMentions });
       return;
