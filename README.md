@@ -207,7 +207,7 @@ and quotes. Plain reposts are skipped. Alerts show the original text, available 
 and video previews, X publish time, and a link. An English machine translation is
 shown alongside the original when available. Long text is included as a text attachment.
 
-Set all four variables to enable this on one bot instance:
+Set the channel ID, X token, state file, and translator URL on one bot instance:
 
 - `NIKITA_X_CHANNEL_ID` is the destination channel. Give the bot View Channel, Send Messages,
   Embed Links, Attach Files, and Read Message History.
@@ -225,7 +225,10 @@ resume from that point. Failed translations get retried after 15 minutes. The fe
 rechecks previously relayed posts every 12 hours to apply edits and removals. These
 lookups use [X API read credits](https://docs.x.com/x-api/getting-started/pricing) as
 the tracked history grows. Check the app's credit and spending limits before enabling.
-Unset `NIKITA_X_CHANNEL_ID` and restart the bot to pause the feed.
+Unset `NIKITA_X_CHANNEL_ID` and restart the bot to pause the feed. While rechecks are
+paused, a moderator with Manage Messages can locate the alert by its X link and
+delete it in Discord. Handle removal requests from X or the account owner within
+24 hours. See the [X Developer Policy](https://docs.x.com/developer-terms/policy#public-display-of-posts).
 
 ## Help desk
 

@@ -41,7 +41,8 @@ async function fixture(t) {
   let nextMessage = 100000000000000003n;
   const channel = {
     type: ChannelType.GuildText,
-    permissionsFor: () => ({ has: () => true }),
+    guild: { members: { async fetchMe({ force }) { assert.equal(force, true); return { fresh: true }; } } },
+    permissionsFor: member => ({ has: () => !(member.fresh && channel.hideHistory) }),
     async send(payload) {
       nextMessage++;
       const id = nextMessage.toString();
@@ -55,7 +56,9 @@ async function fixture(t) {
       return message;
     },
     messages: {
-      async fetch({ before, limit }) {
+      async fetch({ before, limit, message }) {
+        if (message) return messages.get(message);
+        if (channel.hideHistory) return new Map();
         return new Map([...messages].reverse().filter(([id]) => !before || id < before).slice(0, limit));
       },
       async edit(id, payload) {
@@ -71,8 +74,9 @@ async function fixture(t) {
   const client = {
     user: { id: botId },
     channels: {
-      async fetch(id) {
+      async fetch(id, { force }) {
         assert.equal(id, channelId);
+        assert.equal(typeof force, "boolean");
         return channel;
       }
     }
@@ -80,6 +84,7 @@ async function fixture(t) {
 
   const feed = {
     config, env, channel, operations, calls, messages,
+    get time() { return currentTime; },
     timeline: () => ({ meta: { result_count: 0 } }),
     lookup: () => assert.fail("Unexpected X post lookup"),
     translate: () => assert.fail("Unexpected translation"),
@@ -175,13 +180,11 @@ test("seeds without backfill, paginates oldest first and mirrors replies, quotes
   await feed.poll();
   assert.deepEqual(feed.operations.map(({ type, payload }) => [type, payload.nonce]), [["send", reply.id], ["send", quote.id]]);
   const { payload } = feed.operations[0];
-  const [embed, second] = payload.embeds;
-  const rendered = embed.toJSON();
+  const [rendered] = feed.messages.get(feed.operations[0].id).embeds;
   assert.match(rendered.description, /Обновление сегодня/);
   assert.equal(rendered.url, `https://x.com/nikgeneburn/status/${reply.id}`);
   assert.equal(rendered.timestamp, reply.created_at);
-  assert.equal(rendered.image.url, image);
-  assert.equal(second.image.url, extraImage);
+  assert.deepEqual(feed.messages.get(feed.operations[0].id).embeds.map(embed => embed.image?.url), [image, extraImage]);
   assert.deepEqual(rendered.fields, [{ name: "English · Machine translation", value: "Update today. #Tarkov" }]);
   assert.deepEqual(payload.allowedMentions.parse, []);
   assert.equal(payload.enforceNonce, true);
@@ -214,8 +217,8 @@ test("publishes hashtag-only posts without translation and attaches full long-fo
 test("translation failure delivers the original and updates the same message when the retry works", async t => {
   const feed = await fixture(t);
   await feed.seed();
-  const entry = post(2, { text: "Обновление сегодня", lang: "ru" });
-  feed.timeline = () => ({ data: [entry] });
+  const entry = post(2, { text: "Обновление сегодня", lang: "ru", attachments: { media_keys: ["photo"] } });
+  feed.timeline = () => ({ data: [entry], includes: { media: [{ media_key: "photo", type: "photo", url: image }] } });
   feed.translate = () => new Response(null, { status: 503 });
   await feed.poll();
   assert.equal(feed.operations[0].payload.embeds[0].toJSON().description, entry.text);
@@ -235,6 +238,7 @@ test("translation failure delivers the original and updates the same message whe
   assert.equal(edited.type, "edit");
   assert.equal(edited.id, sent.id);
   assert.equal(edited.payload.embeds[0].toJSON().fields[0].value, "Update today");
+  assert.equal(edited.payload.embeds[0].toJSON().image.url, image);
   assert.equal((await feed.read()).published[entry.id].retryTranslationAt, 0);
 });
 
@@ -251,6 +255,11 @@ test("recovers a Discord send with a lost receipt after restarting without anoth
   feed.advance(20 * 60_000); // Past Discord's short nonce de-duplication window.
   feed.channel.loseResponse = false;
   feed.lookup = () => ({ data: [entry] });
+  feed.channel.hideHistory = true;
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  assert.equal((await feed.read()).pending.id, entry.id);
+  assert.equal(feed.operations.length, 1);
+  feed.channel.hideHistory = false;
   await feed.poll();
   assert.deepEqual(feed.operations.map(operation => operation.type), ["send", "edit"]);
   const checkpoint = await feed.read();
@@ -263,12 +272,13 @@ test("refetches edited content, preserves the original timestamp and removes con
   const feed = await fixture(t);
   await feed.seed();
   const entry = post(2);
-  const revised = post(3, { text: "Corrected X text", edit_history_post_ids: [entry.id, xId(3)] });
+  const edit = post(3, { text: "Superseded edit", edit_history_post_ids: [entry.id, xId(3), xId(4)] });
+  const revised = post(4, { text: "Corrected X text", edit_history_post_ids: edit.edit_history_post_ids });
   feed.timeline = () => ({ data: [entry] });
   await feed.poll();
   feed.advance(12 * 60 * 60_000);
-  feed.lookup = ids => ({
-    data: [ids[0] === entry.id ? { ...entry, edit_history_post_ids: revised.edit_history_post_ids } : revised]
+  feed.lookup = ([id]) => ({
+    data: [id === entry.id ? { ...entry, edit_history_post_ids: [entry.id, edit.id] } : id === edit.id ? edit : revised]
   });
   await feed.poll();
   const [sent, edited] = feed.operations;
@@ -283,19 +293,24 @@ test("refetches edited content, preserves the original timestamp and removes con
   await assert.rejects(feed.poll(), /Incomplete X post lookup/);
   assert.equal(feed.operations.length, 2);
   feed.lookup = ids => ({ errors: [missing(ids[0])] });
-  await feed.poll();
+  feed.timeline = () => new Response(null, { status: 503 });
+  await assert.rejects(feed.poll(), { code: "X_HTTP_503" });
   assert.deepEqual(feed.operations.at(-1), { type: "delete", id: sent.id });
   assert.deepEqual((await feed.read()).published, {});
+  assert.equal((await feed.read()).sinceId, entry.id);
 });
 
 test("corrupt state and a failed X poll stop without dropping the delivery cursor", async t => {
   const feed = await fixture(t);
   await feed.seed();
   feed.timeline = () => new Response(null, { status: 429, headers: { "Retry-After": "30" } });
-  await assert.rejects(feed.poll(), error => error.code === "X_HTTP_429" && error.retryAt > Date.now());
+  await assert.rejects(feed.poll(), { code: "X_HTTP_429", retryAt: feed.time + 30_000 });
   assert.equal((await feed.read()).sinceId, xId(1));
   await writeFile(feed.config.stateFile, "{}");
   await assert.rejects(feed.poll(), { code: "X_FEED_STATE" });
+  await writeFile(feed.config.stateFile, "{");
+  await assert.rejects(feed.poll(), { code: "X_FEED_STATE" });
+  assert.equal(await readFile(feed.config.stateFile, "utf8"), "{");
   assert.deepEqual(feed.operations, []);
 });
 
@@ -313,4 +328,29 @@ test("a failed later timeline page cannot skip unseen older posts", async t => {
     : { data: [post(3)], meta: { next_token: "next-page" } };
   await feed.poll();
   assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [xId(2), xId(3)]);
+});
+
+test("a failing lookup batch leaves later reviews independent and records only successful checks", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const state = await feed.read();
+  for (let offset = 2; offset <= 102; offset++) {
+    state.published[xId(offset)] = {
+      versionId: xId(offset), messageId: String(100000000000000000n + BigInt(offset)),
+      retryTranslationAt: 0, nextReviewAt: feed.time
+    };
+  }
+  await writeFile(feed.config.stateFile, JSON.stringify(state));
+  const batches = [];
+  feed.lookup = ids => {
+    batches.push(ids);
+    return ids.length === 100 ? new Response(null, { status: 503 }) : { data: [post(102)] };
+  };
+  await assert.rejects(feed.poll(), { code: "X_HTTP_503" });
+  assert.deepEqual(batches.map(batch => batch.length), [100, 1]);
+  const checkpoint = await feed.read();
+  assert.equal(checkpoint.published[xId(2)].nextReviewAt, feed.time);
+  assert.equal(checkpoint.published[xId(102)].nextReviewAt, feed.time + 12 * 60 * 60_000);
+  await assert.rejects(feed.poll(), { code: "X_HTTP_503" });
+  assert.deepEqual(batches.map(batch => batch.length), [100, 1, 100]);
 });

@@ -5,6 +5,10 @@ import { isPostId } from "./nikitaXApi.js";
 const isTime = value => Number.isSafeInteger(value) && value >= 0;
 const isMessageId = value => typeof value === "string" && /^\d{17,20}$/.test(value);
 
+function stateError() {
+  return Object.assign(new Error("Invalid Nikita X feed state or destination changed"), { code: "X_FEED_STATE" });
+}
+
 export async function loadNikitaXState(file, channelId) {
   const contents = await readFile(file, "utf8").catch(error => {
     if (error.code === "ENOENT") return null;
@@ -12,15 +16,20 @@ export async function loadNikitaXState(file, channelId) {
   });
   if (contents === null) return null;
 
-  const state = JSON.parse(contents);
+  let state;
+  try {
+    state = JSON.parse(contents);
+  } catch {
+    throw stateError();
+  }
   if (state?.version !== 1 || state.channelId !== channelId || !isPostId(state.userId)
-      || (state.sinceId !== null && !isPostId(state.sinceId)) || !isTime(state.lastReviewAt)
+      || (state.sinceId !== null && !isPostId(state.sinceId))
       || !state.published || Array.isArray(state.published) || typeof state.published !== "object"
       || !Object.entries(state.published).every(([id, item]) => isPostId(id) && isMessageId(item?.messageId)
-        && isPostId(item.versionId) && isTime(item.retryTranslationAt))
+        && isPostId(item.versionId) && isTime(item.retryTranslationAt) && isTime(item.nextReviewAt))
       || (state.pending !== null && (!isPostId(state.pending?.id) || !isPostId(state.pending.sourceId)
         || !isTime(state.pending.startedAt)))) {
-    throw Object.assign(new Error("Invalid Nikita X feed state or destination changed"), { code: "X_FEED_STATE" });
+    throw stateError();
   }
   return state;
 }

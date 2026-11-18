@@ -11,9 +11,9 @@ function xError(message, code, retryAt = 0) {
   return Object.assign(new Error(message), { code, retryAt });
 }
 
-function retryTime(headers) {
+function retryTime(headers, now) {
   const retryAfter = headers.get("retry-after");
-  const time = retryAfter && (/^\d+$/.test(retryAfter) ? Date.now() + Number(retryAfter) * 1000 : Date.parse(retryAfter));
+  const time = retryAfter && (/^\d+$/.test(retryAfter) ? now + Number(retryAfter) * 1000 : Date.parse(retryAfter));
   return Math.max(time || 0, Number(headers.get("x-rate-limit-reset")) * 1000 || 0);
 }
 
@@ -42,9 +42,11 @@ function readPost(raw, media) {
   const sourceId = history[0];
   // Edited versions have newer IDs. The first version's X Snowflake preserves the publish time.
   const createdAt = sourceId === id ? timestamp : new Date(Number((BigInt(sourceId) >> 22n) + 1288834974657n)).toISOString();
-  const images = (raw.attachments?.media_keys ?? []).map(key => postImage(media.get(key))).filter(Boolean);
+  const mediaKeys = raw.attachments?.media_keys ?? [];
+  const images = mediaKeys.map(key => postImage(media.get(key))).filter(Boolean);
+  const mediaComplete = mediaKeys.every(key => media.has(key));
 
-  return { id, sourceId, history, latestId: history.at(-1), createdAt, lang, text, images, skip: repost || Boolean(withheld) };
+  return { id, sourceId, history, latestId: history.at(-1), createdAt, lang, text, images, mediaComplete, skip: repost || Boolean(withheld) };
 }
 
 function readPosts(response) {
@@ -70,7 +72,7 @@ function indexLookup(response) {
   return byId;
 }
 
-export function createNikitaXApi(bearerToken, fetchImpl = fetch) {
+export function createNikitaXApi(bearerToken, fetchImpl, now) {
   async function get(path, params) {
     const url = new URL(path, "https://api.x.com");
     url.search = new URLSearchParams(params);
@@ -80,7 +82,7 @@ export function createNikitaXApi(bearerToken, fetchImpl = fetch) {
       signal: AbortSignal.timeout(15_000)
     });
     if (!response.ok) {
-      const retryAt = response.status === 429 || response.status === 503 ? retryTime(response.headers) : 0;
+      const retryAt = response.status === 429 || response.status === 503 ? retryTime(response.headers, now()) : 0;
       throw xError("X request failed", `X_HTTP_${response.status}`, retryAt);
     }
     return response.json();
@@ -121,23 +123,24 @@ export function createNikitaXApi(bearerToken, fetchImpl = fetch) {
   }
 
   async function lookup(ids) {
-    if (!ids.length) return new Map();
     const fetchIds = async values => indexLookup(await get("/2/tweets", { ...postQuery, ids: values.join(",") }));
-    const byId = await fetchIds(ids);
-    const requested = ids.map(id => byId.get(id));
-    if (requested.includes(undefined)) throw xError("Incomplete X post lookup", "X_PAYLOAD");
-
-    const latestIds = [...new Set(requested.filter(post => post && post.id !== post.latestId).map(post => post.latestId))];
-    const latestById = latestIds.length ? await fetchIds(latestIds) : new Map();
-    return new Map(ids.map((id, index) => {
-      const post = requested[index];
-      if (!post || post.id === post.latestId) return [id, post];
-      const latest = latestById.get(post.latestId);
-      if (latest === undefined || latest && latest.sourceId !== post.sourceId) {
-        throw xError("Incomplete X edit lookup", "X_PAYLOAD");
+    const requested = new Map();
+    const initial = await fetchIds(ids);
+    for (const id of ids) requested.set(id, initial.get(id));
+    // X permits at most five edits. A history that keeps changing is retried on a later poll.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const unsettled = [...requested].filter(([, post]) => post && post.id !== post.latestId);
+      if (!unsettled.length) break;
+      const latest = await fetchIds([...new Set(unsettled.map(([, post]) => post.latestId))]);
+      for (const [id, post] of unsettled) {
+        const revision = latest.get(post.latestId);
+        requested.set(id, revision && revision.sourceId !== post.sourceId ? undefined : revision);
       }
-      return [id, latest];
-    }));
+    }
+    for (const [id, post] of requested) {
+      if (post && post.id !== post.latestId) requested.set(id, undefined);
+    }
+    return requested;
   }
 
   return { resolveUserId, timeline, lookup };

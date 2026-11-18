@@ -6,7 +6,7 @@ import { registerSlashCommands } from "./src/commands/registerSlashCommands.js";
 import { registerInteractionHandler } from "./src/handlers/interactionHandler.js";
 import { registerMemberHandlers } from "./src/handlers/memberHandlers.js";
 import { setupHoneypot } from "./src/handlers/honeypotHandler.js";
-import { startNikitaXFeed } from "./src/handlers/nikitaXFeed.js";
+import { setupNikitaXFeed } from "./src/handlers/nikitaXFeed.js";
 
 ensureEnvVars();
 
@@ -19,7 +19,6 @@ client.on(Events.Error, err => {
 
 client.once(Events.ClientReady, async () => {
   console.log(`Bot logged in as ${client.user.tag}`);
-  startNikitaXFeed(client);
 
   try {
     await registerSlashCommands(client);
@@ -32,6 +31,7 @@ client.once(Events.ClientReady, async () => {
 registerInteractionHandler(client);
 registerMemberHandlers(client);
 setupHoneypot(client);
+setupNikitaXFeed(client);
 
 try {
   await client.login(process.env.DISCORD_TOKEN);
