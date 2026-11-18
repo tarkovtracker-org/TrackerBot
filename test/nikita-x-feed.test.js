@@ -69,8 +69,11 @@ async function fixture(t) {
         return new Map([...messages].reverse().filter(([id]) => !before || id < before).slice(0, limit));
       },
       async edit(id, payload) {
-        assert.ok(messages.has(id));
+        const message = messages.get(id);
+        assert.ok(message);
+        message.embeds = payload.embeds.map(embed => embed.toJSON?.() ?? embed);
         operations.push({ type: "edit", id, payload });
+        if (channel.loseEditResponse) throw new Error("Discord accepted the edit before the connection dropped");
       },
       async delete(id) {
         assert.ok(messages.delete(id));
@@ -379,10 +382,11 @@ test("a failing lookup batch leaves later reviews independent and records only s
   assert.deepEqual(batches.map(batch => batch.length), [100, 1, 100]);
 });
 
-test("a later lookup adds missing previews to the same English post", async t => {
+test("a later lookup adds missing previews without replacing the existing translation", async t => {
   const feed = await fixture(t);
   await feed.seed();
-  const entry = post(2, { attachments: { media_keys: ["photo"] } });
+  const entry = post(2, { text: "Скоро", lang: "ru", attachments: { media_keys: ["photo"] } });
+  feed.translate = () => ({ translatedText: "Soon" });
   feed.timeline = () => ({ data: [entry], includes: { media: [{ media_key: "photo", type: "photo" }] } });
   await feed.poll();
   assert.equal(feed.operations[0].payload.embeds[0].toJSON().image, undefined);
@@ -390,10 +394,14 @@ test("a later lookup adds missing previews to the same English post", async t =>
 
   feed.advance(12 * 60 * 60_000);
   feed.lookup = () => ({ data: [entry], includes: { media: [{ media_key: "photo", type: "photo", url: image }] } });
+  feed.translate = () => new Response(null, { status: 503 });
   await feed.poll();
   const [sent, edited] = feed.operations;
   assert.equal(edited.id, sent.id);
   assert.equal(edited.payload.embeds[0].toJSON().image.url, image);
+  assert.equal(edited.payload.embeds[0].toJSON().fields[0].value, "Soon");
+  assert.equal(edited.payload.attachments, undefined);
+  assert.equal(feed.calls.filter(call => call.url.origin === feed.config.translateUrl.origin).length, 1);
   assert.equal((await feed.read()).published[entry.id].mediaComplete, true);
 });
 
@@ -468,4 +476,50 @@ test("a transient Windows sharing violation does not lose the delivery receipt",
     t.mock.restoreAll();
     syncBuiltinESMExports();
   }
+});
+
+test("recovery uses the edit Discord accepted even when its response was lost", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const original = post(2, { attachments: { media_keys: ["old"] } });
+  const revised = post(3, { edit_history_tweet_ids: [original.id, xId(3)], attachments: { media_keys: ["new"] } });
+  feed.timeline = () => ({ data: [original], includes: { media: [{ media_key: "old", type: "photo", url: image }] } });
+  feed.channel.loseResponse = true;
+  await assert.rejects(feed.poll(), /accepted the send/);
+  feed.channel.loseResponse = false;
+  feed.channel.loseEditResponse = true;
+  feed.lookup = () => ({ data: [revised], includes: { media: [{ media_key: "new", type: "photo", url: extraImage }] } });
+  await assert.rejects(feed.poll(), /accepted the edit/);
+  assert.equal((await feed.read()).pending.versionId, original.id);
+  feed.channel.loseEditResponse = false;
+  feed.lookup = () => ({ data: [revised] });
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.type), ["send", "edit", "edit"]);
+  assert.equal(feed.operations[2].payload.embeds[0].toJSON().image.url, extraImage);
+  assert.equal((await feed.read()).published[original.id].versionId, revised.id);
+});
+
+test("a failed revision lookup still applies settled deletions in the batch", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const deleted = post(2);
+  const original = post(3);
+  feed.timeline = () => ({ data: [deleted, original] });
+  await feed.poll();
+  feed.advance(12 * 60 * 60_000);
+  feed.lookup = ids => {
+    if (ids.length === 1) {
+      assert.deepEqual(ids, [xId(4)]);
+      return new Response(null, { status: 503, headers: { "Retry-After": "15" } });
+    }
+    return {
+      data: [{ ...original, edit_history_tweet_ids: [original.id, xId(4)] }],
+      errors: [{ title: "Not Found Error", resource_type: "tweet", resource_id: deleted.id }]
+    };
+  };
+  await assert.rejects(feed.poll(), { code: "X_HTTP_503", retryAt: feed.time + 15_000 });
+  assert.deepEqual(feed.operations.at(-1), { type: "delete", id: feed.operations[0].id });
+  const checkpoint = await feed.read();
+  assert.equal(checkpoint.published[deleted.id], undefined);
+  assert.equal(checkpoint.published[original.id].nextReviewAt, feed.time);
 });

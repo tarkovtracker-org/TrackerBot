@@ -1,6 +1,6 @@
-import { ChannelType, Events, PermissionFlagsBits, escapeMarkdown } from "discord.js";
+import { ChannelType, EmbedBuilder, Events, PermissionFlagsBits, escapeMarkdown } from "discord.js";
 import { getNikitaXFeedConfig } from "../config/env.js";
-import { comparePostIds, createNikitaXApi, nikitaHandle } from "../services/nikitaXApi.js";
+import { comparePostIds, createNikitaXApi, isPostId, nikitaHandle } from "../services/nikitaXApi.js";
 import { loadNikitaXState, saveNikitaXState } from "../services/nikitaXState.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { noMentions } from "../utils/messageReply.js";
@@ -15,6 +15,12 @@ const publishingPermissions = [
 ];
 
 const postUrl = id => `https://x.com/${nikitaHandle}/status/${id}`;
+
+function withImages(embed, images) {
+  const [firstImage, ...otherImages] = images.slice(0, 10);
+  embed.setImage(firstImage ?? null);
+  return [embed, ...otherImages.map(url => ({ image: { url } }))];
+}
 
 async function translate(post, config, fetchImpl) {
   if (/^en(?:-|$)/i.test(post.lang) || !/\p{L}/u.test(post.text.replace(/https?:\/\/\S+|[#@][\p{L}\p{M}\p{N}_]+/gu, ""))) {
@@ -47,11 +53,12 @@ async function makeMessage(post, config, fetchImpl, now) {
   const original = escapeMarkdown(post.text);
   if (original.length > 4096) files.push({ attachment: Buffer.from(post.text), name: "x-post.txt" });
   const embed = createCardEmbed({
-    title: "Nikita Buyanov (@nikgeneburn) posted on X",
+    title: "Posted on X",
     description: original.length > 4096 ? "Original text attached." : original || undefined,
     timestamp: new Date(post.createdAt),
     footer: "X • Original post time"
-  }).setURL(postUrl(post.sourceId));
+  }).setURL(postUrl(post.sourceId))
+    .setAuthor({ name: "Nikita Buyanov (@nikgeneburn)", url: postUrl(post.id) });
 
   if (translation.text) {
     const escaped = escapeMarkdown(translation.text);
@@ -63,11 +70,8 @@ async function makeMessage(post, config, fetchImpl, now) {
     }
   }
 
-  const [firstImage, ...otherImages] = post.images.slice(0, 10);
-  if (firstImage) embed.setImage(firstImage);
-  const embeds = [embed, ...otherImages.map(url => ({ image: { url } }))];
   return {
-    payload: { embeds, files, allowedMentions: noMentions },
+    payload: { embeds: withImages(embed, post.images), files, allowedMentions: noMentions },
     retryTranslationAt: translation.failed ? now() + translationRetryInterval : 0
   };
 }
@@ -81,8 +85,14 @@ async function findPendingMessage(channel, botId, pending) {
     const page = await channel.messages.fetch({ before, limit: 100, cache: false });
     let oldest;
     for (const message of page.values()) {
-      if (message.createdTimestamp >= earliest && message.author.id === botId
-          && message.embeds.some(embed => embed.url === link)) return message;
+      if (message.createdTimestamp >= earliest && message.author.id === botId) {
+        const original = message.embeds.find(embed => embed.url === link);
+        if (original) {
+          const revisionLink = original.author?.url;
+          const versionId = revisionLink?.startsWith(postUrl("")) ? revisionLink.slice(postUrl("").length) : null;
+          return { id: message.id, versionId: isPostId(versionId) ? versionId : pending.versionId };
+        }
+      }
       if (!oldest || comparePostIds(message.id, oldest.id) < 0) oldest = message;
     }
     if (page.size < 100 || !oldest || oldest.createdTimestamp < earliest) return null;
@@ -95,7 +105,7 @@ async function syncMessage(channel, messageId, payload) {
     if (!payload) {
       await channel.messages.delete(messageId);
     } else {
-      await channel.messages.edit(messageId, { ...payload, attachments: [] });
+      await channel.messages.edit(messageId, payload);
     }
     return true;
   } catch (error) {
@@ -124,9 +134,9 @@ async function getDestination(client, channelId, { verifyHistory = false } = {})
   return channel;
 }
 
-function checkedPost(post, sourceId) {
+function checkedPost(post, sourceId, retryError) {
   if (post === undefined || post && post.sourceId !== sourceId) {
-    throw lookupError();
+    throw retryError ?? lookupError();
   }
   return post;
 }
@@ -168,10 +178,28 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     const { payload, retryTranslationAt } = await makeMessage(displayPost, config, fetchImpl, now);
     const receipt = { versionId: post.id, mediaComplete: post.mediaComplete, retryTranslationAt, nextReviewAt: now() + reviewInterval };
     if (messageId) {
-      return await syncMessage(channel, messageId, payload) ? { messageId, ...receipt } : null;
+      return await syncMessage(channel, messageId, { ...payload, attachments: [] }) ? { messageId, ...receipt } : null;
     }
     const message = await channel.send({ ...payload, nonce: post.sourceId, enforceNonce: true });
     return { messageId: message.id, ...receipt };
+  }
+
+  async function lookupPost(id, sourceId) {
+    const { posts, retryError } = await x.lookup([id]);
+    return checkedPost(posts.get(id), sourceId, retryError);
+  }
+
+  async function repairMedia(record, post) {
+    requirePublishingPermissions(channel, client.user, false);
+    try {
+      const message = await channel.messages.fetch({ message: record.messageId, cache: false, force: true });
+      const embeds = withImages(EmbedBuilder.from(message.embeds[0]), post.images);
+      // Edit the embeds only. Discord keeps any existing text and translation attachments.
+      return await syncMessage(channel, record.messageId, { embeds, allowedMentions: noMentions });
+    } catch (error) {
+      if (error?.code === 10008) return false;
+      throw error;
+    }
   }
 
   async function refresh(state, sourceId, record, post) {
@@ -184,13 +212,18 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     const versionOrder = comparePostIds(post.id, record.versionId);
     if (versionOrder < 0) throw lookupError();
     const mediaAvailable = !record.mediaComplete && post.mediaComplete;
-    if (versionOrder > 0 || mediaAvailable || record.retryTranslationAt && record.retryTranslationAt <= now()) {
+    if (versionOrder > 0 || record.retryTranslationAt && record.retryTranslationAt <= now()) {
       const receipt = await publish(post, { id: record.messageId, versionId: record.versionId });
       if (receipt) state.published[sourceId] = receipt;
       else delete state.published[sourceId];
-    } else {
-      record.nextReviewAt = now() + reviewInterval;
+      return;
     }
+    if (mediaAvailable && !await repairMedia(record, post)) {
+      delete state.published[sourceId];
+      return;
+    }
+    if (mediaAvailable) record.mediaComplete = true;
+    record.nextReviewAt = now() + reviewInterval;
   }
 
   async function deliver(state) {
@@ -203,7 +236,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
 
     if (state.pending) {
       const { id, sourceId, versionId } = state.pending;
-      const post = checkedPost((await x.lookup([versionId])).get(versionId), sourceId);
+      const post = await lookupPost(versionId, sourceId);
       let existing = await findPendingMessage(channel, client.user.id, state.pending);
       if (!existing) {
         // Discord can return empty history without Read Message History. Search again with fresh permissions.
@@ -212,7 +245,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
         if (!existing) await getDestination(client, config.channelId, { verifyHistory: true });
       }
       if (post && !post.skip) {
-        const receipt = await publish(post, existing && { id: existing.id, versionId });
+        const receipt = await publish(post, existing);
         if (receipt) state.published[sourceId] = receipt;
       } else if (existing) {
         await syncMessage(channel, existing.id, null);
@@ -228,7 +261,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
       let post = version;
       if (version.id !== version.latestId) {
         if (returnedIds.has(version.latestId)) continue;
-        post = checkedPost((await x.lookup([version.id])).get(version.id), version.sourceId);
+        post = await lookupPost(version.id, version.sourceId);
       }
       const known = state.published[version.sourceId];
       if (known && (!post || comparePostIds(post.id, known.versionId) > 0)) {
@@ -255,9 +288,9 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     let firstError;
     for (let offset = 0; offset < targets.length; offset += 100) {
       const batch = targets.slice(offset, offset + 100);
-      let posts;
+      let result;
       try {
-        posts = await x.lookup(batch.map(([, record]) => record.versionId));
+        result = await x.lookup(batch.map(([, record]) => record.versionId));
       } catch (error) {
         if (error?.retryAt > time || error?.code === "X_HTTP_429") throw error;
         firstError ??= error;
@@ -265,12 +298,13 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
       }
       for (const [sourceId, record] of batch) {
         try {
-          await refresh(state, sourceId, record, checkedPost(posts.get(record.versionId), sourceId));
+          await refresh(state, sourceId, record, checkedPost(result.posts.get(record.versionId), sourceId, result.retryError));
         } catch (error) {
           firstError ??= error;
         }
       }
       await save(state);
+      if (result.retryError?.retryAt > time || result.retryError?.code === "X_HTTP_429") throw result.retryError;
     }
     if (firstError) throw firstError;
   }

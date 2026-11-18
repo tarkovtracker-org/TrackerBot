@@ -141,13 +141,20 @@ export function createNikitaXApi(bearerToken, fetchImpl, now, holds) {
       return indexLookup({ ...single, data: single.data ? [single.data] : [] });
     }
     const requested = new Map();
+    let retryError;
     const initial = await fetchIds(ids);
     for (const id of ids) requested.set(id, initial.get(id));
     // X permits at most five edits. A history that keeps changing is retried on a later poll.
     for (let attempt = 0; attempt < 5; attempt++) {
       const unsettled = [...requested].filter(([, post]) => post && post.id !== post.latestId);
       if (!unsettled.length) break;
-      const latest = await fetchIds([...new Set(unsettled.map(([, post]) => post.latestId))]);
+      let latest;
+      try {
+        latest = await fetchIds([...new Set(unsettled.map(([, post]) => post.latestId))]);
+      } catch (error) {
+        retryError = error;
+        break;
+      }
       for (const [id, post] of unsettled) {
         const revision = latest.get(post.latestId);
         requested.set(id, revision && revision.sourceId !== post.sourceId ? undefined : revision);
@@ -156,7 +163,7 @@ export function createNikitaXApi(bearerToken, fetchImpl, now, holds) {
     for (const [id, post] of requested) {
       if (post && post.id !== post.latestId) requested.set(id, undefined);
     }
-    return requested;
+    return { posts: requested, retryError };
   }
 
   return { resolveUserId, timeline, lookup };
