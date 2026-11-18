@@ -108,6 +108,12 @@ function channelError() {
   return Object.assign(new Error("Nikita X feed destination is unavailable"), { code: "X_FEED_CHANNEL" });
 }
 
+function requirePublishingPermissions(channel, member, creating) {
+  const permissions = channel.permissionsFor(member);
+  if (!permissions?.has(publishingPermissions)
+      || creating && !permissions.has(PermissionFlagsBits.ReadMessageHistory)) throw channelError();
+}
+
 async function getDestination(client, channelId, { verifyHistory = false } = {}) {
   const channel = await client.channels.fetch(channelId, { force: verifyHistory });
   if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) throw channelError();
@@ -155,8 +161,8 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
   });
 
   async function publish(post, existing) {
-    if (!channel.permissionsFor(client.user)?.has(publishingPermissions)) throw channelError();
     const messageId = existing?.id;
+    requirePublishingPermissions(channel, client.user, !messageId);
     const needsPreviews = messageId && !post.mediaComplete && existing.versionId === post.id;
     const displayPost = needsPreviews ? await retainPreviews(channel, post, messageId) : post;
     const { payload, retryTranslationAt } = await makeMessage(displayPost, config, fetchImpl, now);
@@ -228,6 +234,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
       if (known && (!post || comparePostIds(post.id, known.versionId) > 0)) {
         await refresh(state, version.sourceId, known, post);
       } else if (!known && post && !post.skip) {
+        requirePublishingPermissions(channel, client.user, true);
         state.pending = { id: version.id, sourceId: post.sourceId, versionId: post.id, startedAt: now() };
         await save(state);
         state.published[post.sourceId] = await publish(post, null);

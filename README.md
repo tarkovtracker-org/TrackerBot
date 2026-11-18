@@ -211,7 +211,8 @@ Set the channel ID, X token, state file, and translator URL on one bot instance:
 
 - `NIKITA_X_CHANNEL_ID` is the destination channel. Give the bot View Channel, Send Messages,
   Embed Links, Attach Files, and Read Message History.
-- `NIKITA_X_BEARER_TOKEN` is an X app-only token with timeline and Post Lookup access.
+- `NIKITA_X_BEARER_TOKEN` is an X app-only token with User Lookup, User Posts timeline,
+  and Post Lookup access.
 - `NIKITA_X_STATE_FILE` is an absolute file path under an existing writable, persistent
   directory. The file tracks post and Discord message IDs across restarts. Run one
   feed instance at a time, including during deploys, and preserve this file. To use a

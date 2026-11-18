@@ -42,7 +42,7 @@ async function fixture(t) {
     guild: { members: { async fetchMe({ force }) { assert.equal(force, true); return { fresh: true }; } } },
     permissionsFor(member) {
       const permissions = new PermissionsBitField(PermissionsBitField.All).remove(PermissionFlagsBits.Administrator);
-      if (member.fresh && channel.hideHistory) permissions.remove(PermissionFlagsBits.ReadMessageHistory);
+      if (channel.noHistory || member.fresh && channel.hideHistory) permissions.remove(PermissionFlagsBits.ReadMessageHistory);
       if (channel.noAttachments) permissions.remove(PermissionFlagsBits.AttachFiles);
       return permissions;
     },
@@ -317,6 +317,7 @@ test("refetches edited content, preserves the original timestamp and removes con
   feed.lookup = ids => ({ errors: [{ resource_type: "tweet", resource_id: ids[0], title: "Not Found Error" }] });
   feed.timeline = () => new Response(null, { status: 503 });
   feed.channel.noAttachments = true;
+  feed.channel.noHistory = true;
   await assert.rejects(feed.poll(), { code: "X_HTTP_503" });
   assert.deepEqual(feed.operations.at(-1), { type: "delete", id: sent.id });
   assert.deepEqual((await feed.read()).published, {});
@@ -382,9 +383,10 @@ test("a later lookup adds missing previews to the same English post", async t =>
   const feed = await fixture(t);
   await feed.seed();
   const entry = post(2, { attachments: { media_keys: ["photo"] } });
-  feed.timeline = () => ({ data: [entry] });
+  feed.timeline = () => ({ data: [entry], includes: { media: [{ media_key: "photo", type: "photo" }] } });
   await feed.poll();
   assert.equal(feed.operations[0].payload.embeds[0].toJSON().image, undefined);
+  assert.equal((await feed.read()).published[entry.id].mediaComplete, false);
 
   feed.advance(12 * 60 * 60_000);
   feed.lookup = () => ({ data: [entry], includes: { media: [{ media_key: "photo", type: "photo", url: image }] } });
@@ -393,6 +395,23 @@ test("a later lookup adds missing previews to the same English post", async t =>
   assert.equal(edited.id, sent.id);
   assert.equal(edited.payload.embeds[0].toJSON().image.url, image);
   assert.equal((await feed.read()).published[entry.id].mediaComplete, true);
+});
+
+test("new delivery requires message history before reserving or sending an alert", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const entry = post(2);
+  feed.timeline = () => ({ data: [entry] });
+  feed.channel.noHistory = true;
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  assert.deepEqual(feed.operations, []);
+  const checkpoint = await feed.read();
+  assert.equal(checkpoint.sinceId, xId(1));
+  assert.equal(checkpoint.pending, null);
+
+  feed.channel.noHistory = false;
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [entry.id]);
 });
 
 test("pending delivery and review share a lookup rate limit and a definite 404 clears pending", async t => {

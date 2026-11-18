@@ -44,7 +44,7 @@ function readPost(raw, media) {
   const createdAt = sourceId === id ? timestamp : new Date(Number((BigInt(sourceId) >> 22n) + 1288834974657n)).toISOString();
   const mediaKeys = raw.attachments?.media_keys ?? [];
   const images = mediaKeys.map(key => postImage(media.get(key))).filter(Boolean);
-  const mediaComplete = mediaKeys.every(key => media.has(key));
+  const mediaComplete = images.length === mediaKeys.length;
 
   return { id, sourceId, history, latestId: history.at(-1), createdAt, lang, text, images, mediaComplete, skip: repost || Boolean(withheld) };
 }
