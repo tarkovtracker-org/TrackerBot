@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { isSupportConfigured, loadSupportContext, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketOverwrites, ticketTopic } from "../config/support.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
-import { getPreviousTicketParent, withTicketDestinationLock } from "../config/destinations.js";
+import { getPreviousTicketParent, withDestinationReadLock } from "../config/destinations.js";
 import { noMentions } from "../utils/messageReply.js";
 
 const operations = new Set();
@@ -38,7 +38,7 @@ export async function handleSupportInteraction(interaction) {
       }
       operations.add(key);
       ownsLock = true;
-      return await withTicketDestinationLock(interaction.guildId, async () => {
+      return await withDestinationReadLock(interaction.guildId, async () => {
         const { config, bot } = await loadSupportContext(interaction.guild);
         if (actionId !== ticketConfirmationId(type, config)) {
           await interaction.editReply({ content: "The ticket audience or destination changed. Select your support option again to review the current privacy notice before opening a ticket." });

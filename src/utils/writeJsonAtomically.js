@@ -1,8 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { rename, unlink, writeFile } from "node:fs/promises";
+import { open, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-export async function writeJsonAtomically(file, value) {
+async function syncParentDirectory(file) {
+  if (process.platform === "win32") return;
+  try {
+    const directory = await open(dirname(file), "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+  } catch (error) {
+    if (!["EINVAL", "ENOTSUP", "EOPNOTSUPP"].includes(error.code)) throw error;
+  }
+}
+
+export async function writeJsonAtomically(file, value, onReplace) {
   const temporaryFile = `${file}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporaryFile, JSON.stringify(value), { flag: "wx", mode: 0o600, flush: true });
@@ -16,6 +31,8 @@ export async function writeJsonAtomically(file, value) {
         await delay(25 * 2 ** attempt);
       }
     }
+    onReplace?.();
+    await syncParentDirectory(file);
   } finally {
     await unlink(temporaryFile).catch(() => {});
   }

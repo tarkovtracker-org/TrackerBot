@@ -166,7 +166,8 @@ buttons retain their old creation behavior. With **any** configured, they show t
 new account-ticket privacy disclosure; partial/invalid configuration fails closed.
 
 To disable rollout, remove/disable the new panel's interactive entry and point
-members to its permanent links, then remove all nine `SUPPORT_*` settings together
+members to its permanent links. Use `/destinations reset` for all five support
+channel and category overrides, then remove all nine `SUPPORT_*` host settings
 and restart the bot. Preserve/review existing ticket channels and their explicit
 permissions; removing settings does not delete or migrate them, and new-ticket
 lifecycle operations will remain unavailable until valid settings are restored.

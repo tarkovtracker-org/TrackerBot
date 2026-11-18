@@ -1,7 +1,7 @@
 import { ChannelType, PermissionFlagsBits, MessageFlags } from "discord.js";
 import { reactionRoleNameMap, getTicketStaffRoleIds, getNotificationRoleId, isSafeNotificationRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
-import { getDestinationId, getPreviousTicketParent, withTicketDestinationLock } from "../config/destinations.js";
+import { getDestinationId, getPreviousTicketParent, withDestinationReadLock } from "../config/destinations.js";
 
 const colors = {
   success: 0x4ade80,
@@ -10,6 +10,7 @@ const colors = {
 };
 
 // Serialize same-member ticket creation and notification toggles independently.
+// The shared destination lock lets different members create tickets concurrently.
 // Like the rest of the bot, this lock is process-local, not distributed.
 const activeButtons = new Set();
 
@@ -35,7 +36,7 @@ export async function handleButtonInteraction(interaction) {
   }
   activeButtons.add(key);
   try {
-    if (ticket) await withTicketDestinationLock(interaction.guild.id, () => handleTicketCreation(interaction));
+    if (ticket) await withDestinationReadLock(interaction.guild.id, () => handleTicketCreation(interaction));
     else await toggleReactionRole(interaction, roleName);
   } finally {
     activeButtons.delete(key);

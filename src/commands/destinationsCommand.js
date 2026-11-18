@@ -86,11 +86,15 @@ export async function executeDestinations(interaction) {
         throw new DestinationError("Account and moderation tickets require separate categories.");
       }
       const target = id ?? (key === "honeypot" ? configured.honeypot : null);
-      if (target && (id || guild.channels.cache.has(target))) {
-        const [channel, bot] = await Promise.all([
-          guild.channels.fetch(target, { force: true }),
-          guild.members.fetchMe({ force: true })
-        ]);
+      if (target) {
+        const channel = await guild.channels.fetch(target, { force: true }).catch(error => {
+          // The host fallback may explicitly belong to a different server.
+          if (!id && error?.code === "GuildChannelUnowned") return false;
+          if (!id) throw new DestinationError("The bot could not verify the host honeypot. The current destination is still active.");
+          throw error;
+        });
+        if (!id && channel === false) return;
+        const bot = await guild.members.fetchMe({ force: true });
         if (!channel || channel.guildId !== guild.id || !types.includes(channel.type) || !channel.permissionsFor(bot)?.has(permissions)) {
           throw new DestinationError("Choose a channel or category in this server where TrackerBot has the required permissions.");
         }

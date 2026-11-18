@@ -35,21 +35,37 @@ let file;
 let settings = {};
 let previousTickets = {};
 let writes = Promise.resolve();
-const ticketOperations = new Map();
+const guildOperations = new Map();
 
-export function withTicketDestinationLock(guildId, run) {
+function withDestinationLock(guildId, run, exclusive) {
   if (!file) return run();
-  const operation = (ticketOperations.get(guildId) ?? Promise.resolve()).then(run);
-  const settled = operation.catch(() => {});
-  ticketOperations.set(guildId, settled);
+  let lock = guildOperations.get(guildId);
+  if (!lock) {
+    lock = { writer: Promise.resolve(), readers: new Set(), pending: 0 };
+    guildOperations.set(guildId, lock);
+  }
+  const ready = exclusive ? Promise.all([lock.writer, ...lock.readers]) : lock.writer;
+  const operation = ready.then(run);
+  const settled = operation.then(() => {}, () => {});
+  lock.pending++;
+  if (exclusive) lock.writer = settled;
+  else lock.readers.add(settled);
   void settled.then(() => {
-    if (ticketOperations.get(guildId) === settled) ticketOperations.delete(guildId);
+    if (!exclusive) lock.readers.delete(settled);
+    if (--lock.pending === 0) guildOperations.delete(guildId);
   });
   return operation;
 }
 
+export const withDestinationReadLock = (guildId, run) => withDestinationLock(guildId, run, false);
+
 export async function initializeDestinations(path = process.env.TRACKERBOT_DESTINATIONS_FILE?.trim()) {
-  if (!path) return;
+  if (!path) {
+    file = undefined;
+    settings = {};
+    previousTickets = {};
+    return;
+  }
   if (!isAbsolute(path)) throw new Error("TRACKERBOT_DESTINATIONS_FILE must be absolute.");
   const data = await readFile(path, "utf8").catch(error => {
     if (error.code === "ENOENT") return null;
@@ -108,12 +124,13 @@ export function updateDestination(guildId, key, channelId, validate) {
       const guilds = { ...settings };
       if (Object.keys(next).length) guilds[guildId] = next;
       else delete guilds[guildId];
-      await writeJsonAtomically(file, { version: 1, guilds, previousTickets: history });
-      settings = guilds;
-      previousTickets = history;
+      await writeJsonAtomically(file, { version: 1, guilds, previousTickets: history }, () => {
+        settings = guilds;
+        previousTickets = history;
+      });
     });
     writes = update.catch(() => {});
     return update;
   }
-  return ticketDestinationKeys.has(key) ? withTicketDestinationLock(guildId, enqueueUpdate) : enqueueUpdate();
+  return withDestinationLock(guildId, enqueueUpdate, true);
 }

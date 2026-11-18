@@ -97,6 +97,26 @@ function fixture(command, { cancel = false, timeout = false, revoked = false, me
   return { interaction, events, edits, notices };
 }
 
+test("nuke aborts before cloning when a bot destination changes during confirmation", async t => {
+  const f = fixture("nuke");
+  const previous = process.env.WELCOME_CHANNEL_ID;
+  delete process.env.WELCOME_CHANNEL_ID;
+  t.after(() => {
+    if (previous === undefined) delete process.env.WELCOME_CHANNEL_ID;
+    else process.env.WELCOME_CHANNEL_ID = previous;
+  });
+  const fetch = f.interaction.guild.channels.fetch;
+  f.interaction.guild.channels.fetch = async (...args) => {
+    const channel = await fetch(...args);
+    process.env.WELCOME_CHANNEL_ID = channel.id;
+    return channel;
+  };
+  await executeNuke(f.interaction);
+  assert.equal(f.events.includes("clone"), false);
+  assert.equal(f.events.includes("delete"), false);
+  assert.match(f.edits.at(-1).content, /destinations for this channel changed/);
+});
+
 for (const [name, execute, operation] of [["nuke", executeNuke, "clone"], ["wipe", executeWipe, "bulkDelete"]]) {
   test(`${name}: confirmation uses a fetched Message, not reply's undefined return`, async () => {
     const f = fixture(name);

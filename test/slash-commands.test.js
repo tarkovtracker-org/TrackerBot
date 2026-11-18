@@ -261,6 +261,27 @@ test("archive category IDs are configurable and invalid values never fall back",
   assert.equal(valid.channelEdits[0].parent, categoryId);
 });
 
+for (const configured of [true, false]) {
+  test(`archive aborts when its ${configured ? "configured" : "name-based"} category changes during the final permission checks`, async () => {
+    if (configured) process.env.ARCHIVE_CATEGORY_ID = categoryId;
+    const f = fixture("channel", { action: "archive" });
+    const replacement = { id: "555555555555555555", type: ChannelType.GuildCategory, name: "Archive" };
+    const fetch = f.interaction.guild.channels.fetch;
+    let changed = false;
+    f.interaction.guild.channels.fetch = async id => {
+      if (id) {
+        changed = true;
+        if (configured) process.env.ARCHIVE_CATEGORY_ID = replacement.id;
+        return fetch(id);
+      }
+      return changed ? new Collection([[replacement.id, replacement]]) : fetch();
+    };
+    await run(f);
+    assert.equal(f.channelEdits.length, 0);
+    assert.match(f.edits.at(-1).content, /archive destination changed/);
+  });
+}
+
 test("two overlapping channel operations cannot both open or mutate; the lock releases afterward", async () => {
   const first = fixture("channel", { action: "archive" });
   const running = handleChatInputCommand(first.interaction);

@@ -41,6 +41,7 @@ export function getNikitaXFeedConfig(env = process.env) {
   const translateUrl = URL.parse(env.NIKITA_X_TRANSLATE_URL?.trim() ?? "");
   if ((channelId && !/^\d{17,20}$/.test(channelId)) || (guildId && !/^\d{17,20}$/.test(guildId))
       || !bearerToken || !stateFile || !isAbsolute(stateFile)
+      || (!channelId && (!destinationsFile || !isAbsolute(destinationsFile)))
       || destinationsFile && resolve(destinationsFile) === resolve(stateFile)
       || translateUrl?.protocol !== "https:" || translateUrl.username || translateUrl.password
       || translateUrl.search || translateUrl.hash) {

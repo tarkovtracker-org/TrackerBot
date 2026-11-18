@@ -174,6 +174,15 @@ test("feed is opt-in and requires a complete configuration and trusted HTTPS tra
   }
 });
 
+test("a guild-only feed requires a destination store the server can write to", async t => {
+  const { env, config } = await fixture(t);
+  delete env.NIKITA_X_CHANNEL_ID;
+  env.NIKITA_X_GUILD_ID = guildId;
+  assert.throws(() => getNikitaXFeedConfig(env), /Invalid Nikita X feed/);
+  env.TRACKERBOT_DESTINATIONS_FILE = config.stateFile + ".destinations";
+  assert.equal(getNikitaXFeedConfig(env).guildId, guildId);
+});
+
 test("seeds without backfill, paginates oldest first and mirrors replies, quotes, images and translation", async t => {
   const feed = await fixture(t);
   await feed.seed();

@@ -1,6 +1,6 @@
 import { Events } from "discord.js";
 import { hasAdminRole } from "../config/constants.js";
-import { canConfigureDestinations, getDestinationId } from "../config/destinations.js";
+import { canConfigureDestinations, getDestinationId, withDestinationReadLock } from "../config/destinations.js";
 
 // Honeypot channel: a hidden channel that real users should never post in.
 // Bots/spam accounts that find it and send a message are banned on sight.
@@ -34,7 +34,7 @@ export function setupHoneypot(client) {
       const channel = client.channels.cache.get(id);
       if (!channel?.isTextBased() || !active(channel)) continue;
       try {
-        await ensureHoneypotMessage(channel);
+        await ensureHoneypotMessage(channel, () => active(channel));
         await cleanupOldMessages(channel, () => active(channel));
       } catch (err) {
         console.error("Honeypot cleanup failed", { code: err?.code ?? "unknown" });
@@ -62,15 +62,15 @@ export function setupHoneypot(client) {
       // admin exemption cannot be bypassed by a missing message.member value.
       const member = message.member ?? await message.guild.members.fetch(message.author.id);
       if (hasAdminRole(member.roles.cache)) return;
-      if (message.channelId !== getDestinationId(message.guild?.id, "honeypot")) return;
-
-      try {
-        await message.delete();
-      } catch (err) {
-        console.error("Failed to delete honeypot trigger message:", err);
-      }
-
-      if (message.channelId === getDestinationId(message.guild?.id, "honeypot")) await punishAuthor(message);
+      await withDestinationReadLock(message.guild?.id, async () => {
+        if (message.channelId !== getDestinationId(message.guild?.id, "honeypot")) return;
+        try {
+          await message.delete();
+        } catch (err) {
+          console.error("Failed to delete honeypot trigger message:", err);
+        }
+        await punishAuthor(message);
+      });
     } catch (err) {
       // Fail safe: if member resolution or role inspection fails, do not risk
       // punishing an administrator.
@@ -81,13 +81,13 @@ export function setupHoneypot(client) {
 
 // Send the warning message only if no existing bot message carries the marker.
 // Paginates so an existing marker beyond the first page isn't missed.
-export async function ensureHoneypotMessage(channel) {
+export async function ensureHoneypotMessage(channel, active = () => true) {
   for await (const messages of fetchMessagePages(channel)) {
-    if (messages.some(msg => msg.author.bot && msg.content?.includes(HONEYPOT_MARKER))) {
+    if (!active() || messages.some(msg => msg.author.bot && msg.content?.includes(HONEYPOT_MARKER))) {
       return; // marker found — no duplicate needed
     }
   }
-  await channel.send(HONEYPOT_WARNING);
+  if (active()) await channel.send(HONEYPOT_WARNING);
 }
 
 // Delete messages older than 16h, preserving the honeypot warning message.

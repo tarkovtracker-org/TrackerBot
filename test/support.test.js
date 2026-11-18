@@ -248,6 +248,11 @@ test("uncertain create does not retry and releases the process lock", async () =
   assert.equal(f.created.length, 1);
 });
 
+test("missing support destination diagnostics mention Discord settings and the host fallback", () => {
+  delete process.env.SUPPORT_TRACKER_CHANNEL_ID;
+  assert.throws(() => getSupportConfig(ids.guild), /\/destinations set.*SUPPORT_TRACKER_CHANNEL_ID/);
+});
+
 test("existing tickets remain manageable after the configured category moves", async t => {
   const dir = await mkdtemp(join(tmpdir(), "trackerbot-support-destinations-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -269,7 +274,7 @@ test("existing tickets remain manageable after the configured category moves", a
     assert.match(last(f), /not a managed support ticket/);
     assert.equal(f.edits.length, 1);
   } finally {
-    await initializeDestinations(join(dir, "empty.json"));
+    await initializeDestinations(null);
   }
 });
 
@@ -312,7 +317,7 @@ test("a category move waits for an in-flight ticket creation and keeps the creat
   } finally {
     release.resolve();
     await Promise.allSettled([opening, moving]);
-    await initializeDestinations(join(dir, "empty.json"));
+    await initializeDestinations(null);
   }
 });
 

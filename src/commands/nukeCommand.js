@@ -7,7 +7,7 @@ import {
 } from "discord.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { hasAdminRole } from "../config/constants.js";
-import { destinations, getDestinationId } from "../config/destinations.js";
+import { destinations, getDestinationId, getDestinationOverride, withDestinationReadLock } from "../config/destinations.js";
 
 const colors = {
   success: 0x4ade80,
@@ -22,7 +22,10 @@ const CONFIRM_TIMEOUT_MS = 15_000;
 // warning can tell the admin exactly which bot features will break.
 export function getAffectedBotFeatures(channelId, guildId) {
   return Object.entries(destinations).filter(([key]) => getDestinationId(guildId, key) === channelId)
-    .map(([, { label, env }]) => `${label.toLowerCase()} (${env})`);
+    .map(([key, { label, env }]) => {
+      const setting = getDestinationOverride(guildId, key) ? `/destinations set destination:${key}` : env;
+      return `${label.toLowerCase()} (${setting})`;
+    });
 }
 
 export async function executeNuke(interaction) {
@@ -78,7 +81,7 @@ export async function executeNuke(interaction) {
     warningLines.push(
       "",
       `⚠️ **This channel is used by the bot** for: ${affectedFeatures.join(", ")}.`,
-      "Nuking it will break those bot features. Update the relevant env var(s) to the new channel ID afterward."
+      "Nuking it will break those bot features. Point each listed setting to the new channel afterward."
     );
   }
 
@@ -176,47 +179,60 @@ export async function executeNuke(interaction) {
       cloneOptions.defaultThreadRateLimitPerUser = oldChannel.defaultThreadRateLimitPerUser;
     }
 
-    let clonedChannel;
-    try {
-      clonedChannel = await guild.channels.create(cloneOptions);
-    } catch (err) {
-      console.error("Nuke: failed to clone channel:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
-      await interaction.editReply({
-        embeds: [
-          createCardEmbed({
-            title: "Nuke Failed",
-            description: "Failed to clone the channel. The original channel is untouched. Check bot permissions (Manage Channels).",
-            color: colors.error
-          })
-        ],
-        components: []
-      }).catch(() => {});
-      return;
-    }
+    const result = await withDestinationReadLock(guild.id, async () => {
+      const currentFeatures = getAffectedBotFeatures(channel.id, interaction.guildId);
+      if (JSON.stringify(currentFeatures) !== JSON.stringify(affectedFeatures)) {
+        await interaction.editReply({
+          content: "The bot destinations for this channel changed. Run /nuke again to review the new impact.",
+          embeds: [], components: []
+        });
+        return;
+      }
+      let clonedChannel;
+      try {
+        clonedChannel = await guild.channels.create(cloneOptions);
+      } catch (err) {
+        console.error("Nuke: failed to clone channel:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
+        await interaction.editReply({
+          embeds: [
+            createCardEmbed({
+              title: "Nuke Failed",
+              description: "Failed to clone the channel. The original channel is untouched. Check bot permissions (Manage Channels).",
+              color: colors.error
+            })
+          ],
+          components: []
+        }).catch(() => {});
+        return;
+      }
 
-    // Place the clone at the old channel's position so it sits in the same spot.
-    try {
-      await clonedChannel.setPosition(oldChannel.position, { reason: `/nuke by ${interaction.user.tag}` });
-    } catch (err) {
-      // Non-fatal: the clone exists, just not at the exact position.
-      console.warn("Nuke: could not restore channel position:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
-    }
+      // Place the clone at the old channel's position so it sits in the same spot.
+      try {
+        await clonedChannel.setPosition(oldChannel.position, { reason: `/nuke by ${interaction.user.tag}` });
+      } catch (err) {
+        // Non-fatal: the clone exists, just not at the exact position.
+        console.warn("Nuke: could not restore channel position:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
+      }
 
-    // Delete the old channel now that the clone is in place.
-    let oldChannelDeleted = true;
-    try {
-      await oldChannel.delete(`/nuke by ${interaction.user.tag}`);
-    } catch (err) {
-      console.error("Nuke: failed to delete old channel:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
-      oldChannelDeleted = false;
-    }
+      // Delete the old channel now that the clone is in place.
+      let oldChannelDeleted = true;
+      try {
+        await oldChannel.delete(`/nuke by ${interaction.user.tag}`);
+      } catch (err) {
+        console.error("Nuke: failed to delete old channel:", { name: err?.name ?? "unknown", code: err?.code ?? "unknown" });
+        oldChannelDeleted = false;
+      }
+      return { clonedChannel, oldChannelDeleted };
+    });
+    if (!result) return;
+    const { clonedChannel, oldChannelDeleted } = result;
 
     // Post a fresh-chat notice in the new channel.
     await clonedChannel.send({
       embeds: [
         createCardEmbed({
           title: "Channel Nuked",
-          description: `This channel was nuked by ${interaction.user}.\nAll permissions and settings were carried over from the previous channel.${isBotChannel ? "\n\n⚠️ **This was a bot-related channel** — update the bot's env configuration to use the new channel ID." : ""}`,
+          description: `This channel was nuked by ${interaction.user}.\nAll permissions and settings were carried over from the previous channel.${isBotChannel ? `\n\n⚠️ Point these bot settings to the new channel: ${affectedFeatures.join(", ")}.` : ""}`,
           color: colors.success
         })
       ]

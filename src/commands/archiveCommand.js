@@ -2,7 +2,13 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags
 import { adminRoles, hasAdminRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { noMentions } from "../utils/messageReply.js";
-import { getDestinationId } from "../config/destinations.js";
+import { getDestinationId, withDestinationReadLock } from "../config/destinations.js";
+
+function archiveCategory(guildId, channels) {
+  const id = getDestinationId(guildId, "archive");
+  return id ? channels.get(id) : channels.find(channel =>
+    channel?.type === ChannelType.GuildCategory && channel.name.trim().toLowerCase() === "archive");
+}
 
 export async function executeArchive(interaction) {
   if (!hasAdminRole(interaction.member.roles.cache)) {
@@ -17,12 +23,9 @@ export async function executeArchive(interaction) {
   try {
     const guild = interaction.guild;
     const channels = await guild.channels.fetch();
-    const categoryId = getDestinationId(guild.id, "archive");
-    const category = categoryId ? channels.get(categoryId) : channels.find(channel =>
-      channel?.type === ChannelType.GuildCategory && channel.name.trim().toLowerCase() === "archive"
-    );
+    const category = archiveCategory(guild.id, channels);
     if (category?.type !== ChannelType.GuildCategory) {
-      console.warn("Archive category unavailable", { categoryId: categoryId || "legacy Archive category" });
+      console.warn("Archive category unavailable", { categoryId: getDestinationId(guild.id, "archive") || "legacy Archive category" });
       await interaction.editReply({ content: "Staff must configure a valid archive category in this server. Nothing changed." });
       return;
     }
@@ -53,10 +56,6 @@ export async function executeArchive(interaction) {
       await interaction.editReply({ content: "Your admin access has changed. Nothing changed.", embeds: [], components: [] });
       return;
     }
-    if (getDestinationId(guild.id, "archive") !== categoryId) {
-      await interaction.editReply({ content: "The archive destination changed. Open a new preview.", embeds: [], components: [] });
-      return;
-    }
     const roles = await guild.roles.fetch();
     if (!adminRoles.size || [...adminRoles].some(id => id === guild.id || !roles.has(id))) {
       throw Object.assign(new Error("Configured archive admin roles are invalid in this guild"), { code: "ARCHIVE_ADMIN_ROLES_INVALID" });
@@ -75,16 +74,25 @@ export async function executeArchive(interaction) {
       });
       return;
     }
-    // One atomic channel edit: never inherit a public category's overwrites.
-    await channel.edit({
-      parent: category.id,
-      permissionOverwrites: [
-        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: bot.id, allow: botAccess },
-        ...[...adminRoles].map(id => ({ id, allow: staffAccess }))
-      ],
-      reason: `Private audit archive requested by ${interaction.user.id}`
+    const archived = await withDestinationReadLock(guild.id, async () => {
+      const current = archiveCategory(guild.id, await guild.channels.fetch());
+      if (current?.type !== ChannelType.GuildCategory || current.id !== category.id) return false;
+      // One atomic channel edit: never inherit a public category's overwrites.
+      await channel.edit({
+        parent: current.id,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: bot.id, allow: botAccess },
+          ...[...adminRoles].map(id => ({ id, allow: staffAccess }))
+        ],
+        reason: `Private audit archive requested by ${interaction.user.id}`
+      });
+      return true;
     });
+    if (!archived) {
+      await interaction.editReply({ content: "The archive destination changed. Open a new preview.", embeds: [], components: [] });
+      return;
+    }
     await interaction.editReply({ content: "Channel archived for staff review. History was retained; no messages were deleted.", embeds: [], components: [] }).catch(err => {
       console.warn("Archive applied but confirmation notice failed", { code: err.code ?? "unknown" });
     });

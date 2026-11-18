@@ -25,6 +25,14 @@ function id(value, name) {
   return value;
 }
 
+function supportDestinationId(guildId, key, name) {
+  const value = getDestinationId(guildId, `support-${key}`);
+  if (!/^\d{17,20}$/.test(value ?? "")) {
+    throw new SupportConfigurationError(`Choose the support destination with /destinations set or configure ${name} on the host.`);
+  }
+  return value;
+}
+
 export function isSupportConfigured(guildId) {
   const names = [
     ...Object.values(supportTicketTypes).map(({ prefix }) => `${prefix}_STAFF_ROLE_IDS`),
@@ -46,11 +54,11 @@ function contactUrl(name) {
 
 export function getSupportConfig(guildId) {
   const products = Object.fromEntries(Object.entries(supportProducts).map(([key, value]) =>
-    [key, { ...value, channelId: id(getDestinationId(guildId, `support-${key}`), value.env) }]
+    [key, { ...value, channelId: supportDestinationId(guildId, key, value.env) }]
   ));
   const tickets = Object.fromEntries(Object.entries(supportTicketTypes).map(([key, value]) => {
     const roleIds = [...new Set((process.env[`${value.prefix}_STAFF_ROLE_IDS`] ?? "").split(",").map(roleId => id(roleId.trim(), `${value.prefix}_STAFF_ROLE_IDS`)))];
-    return [key, { ...value, categoryId: id(getDestinationId(guildId, `support-${key}`), `${value.prefix}_CATEGORY_ID`), roleIds }];
+    return [key, { ...value, categoryId: supportDestinationId(guildId, key, `${value.prefix}_CATEGORY_ID`), roleIds }];
   }));
   if (tickets.account.categoryId === tickets.moderation.categoryId ||
       tickets.account.roleIds.some(roleId => tickets.moderation.roleIds.includes(roleId))) {
