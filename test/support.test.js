@@ -380,6 +380,14 @@ test("recorded tickets remain actionable after the active category and public ro
   }
 });
 
+test("legacy account topics remain ineligible for managed ticket actions", async () => {
+  const f = fixture({ action: "close", type: "account" });
+  f.ticket.topic = `Ticket for ${ids.member}`;
+  await handleSupportInteraction(f.interaction);
+  assert.match(last(f), /not a managed support ticket/);
+  assert.equal(f.edits.length, 0);
+});
+
 for (const action of ["close", "reopen"]) {
   test(`assigned moderation staff can ${action} using freshly fetched metadata and permissions`, async () => {
     const f = fixture({ action, actor: ids.other, actorRoles: [ids.moderationRole], state: action === "close" ? "open" : "closed" });

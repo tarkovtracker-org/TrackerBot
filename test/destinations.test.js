@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import fs, { mkdtemp, readFile, rm } from "node:fs/promises";
+import fs, { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,7 +9,7 @@ import { setImmediate as nextTurn, setTimeout as delay } from "node:timers/promi
 import { ChannelType, Collection, Events, MessageFlags, PermissionsBitField } from "discord.js";
 import { handleChatInputCommand } from "../src/interactions/slashHandlers.js";
 import { getAffectedBotFeatures } from "../src/commands/nukeCommand.js";
-import { canConfigureDestinations, destinations, getDestinationId, getDestinationOverride, getPreviousTicketParent, initializeDestinations, updateDestination, withDestinationReadLock } from "../src/config/destinations.js";
+import { canConfigureDestinations, destinations, getDestinationId, getDestinationOverride, getHoneypotCutoff, getPreviousTicketParent, initializeDestinations, updateDestination, withDestinationReadLock } from "../src/config/destinations.js";
 import { ensureHoneypotMessage, setupHoneypot } from "../src/handlers/honeypotHandler.js";
 import { writeJsonAtomically } from "../src/utils/writeJsonAtomically.js";
 
@@ -404,6 +404,21 @@ test("missing destination storage directory fails closed while a new file is all
   assert.equal(canConfigureDestinations(), false);
   await initializeDestinations(path);
   assert.equal(canConfigureDestinations(), true);
+});
+
+test("loading an older honeypot override persists a safe cleanup cutoff", async t => {
+  const { path } = await fixture(t);
+  const honeypot = asId(1);
+  const previousTickets = { [guildId]: { tickets: { [asId(2)]: asId(3) } } };
+  await writeFile(path, JSON.stringify({ version: 1, guilds: { [guildId]: { honeypot } }, previousTickets }));
+  let time = 100_000;
+  t.mock.method(Date, "now", () => time);
+  await initializeDestinations(path);
+  assert.equal(getHoneypotCutoff(guildId, honeypot), time);
+  assert.deepEqual(JSON.parse(await readFile(path, "utf8")).previousTickets, previousTickets);
+  time += 10_000;
+  await initializeDestinations(path);
+  assert.equal(getHoneypotCutoff(guildId, honeypot), 100_000);
 });
 
 test("one server's channel validation does not delay another server's write", async t => {

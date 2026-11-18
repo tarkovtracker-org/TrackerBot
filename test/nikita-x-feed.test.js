@@ -384,6 +384,22 @@ test("corrupt state and a failed X poll stop without dropping the delivery curso
   assert.deepEqual(feed.operations, []);
 });
 
+test("invalid recovery records stop the feed before it changes delivery state", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const state = await feed.read();
+  const entry = post(2);
+  for (const [key, channel] of [[entry.id, undefined], [xId(3), channelId]]) {
+    const next = { ...state, recoveries: { [key]: {
+      id: entry.id, sourceId: entry.id, versionId: entry.id, channelId: channel, startedAt: feed.time
+    } } };
+    await writeFile(feed.config.stateFile, JSON.stringify(next));
+    await assert.rejects(feed.poll(), { code: "X_FEED_STATE" });
+    assert.equal(await readFile(feed.config.stateFile, "utf8"), JSON.stringify(next));
+  }
+  assert.deepEqual(feed.operations, []);
+});
+
 test("a failed later timeline page cannot skip unseen older posts", async t => {
   const feed = await fixture(t);
   await feed.seed();

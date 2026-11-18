@@ -98,6 +98,13 @@ export async function initializeDestinations(path = process.env.TRACKERBOT_DESTI
           && isDiscordId(activation?.channelId) && Number.isSafeInteger(activation.startedAt) && activation.startedAt >= 0)) {
       throw new Error("The Discord honeypot activation history is invalid.");
     }
+    const missing = Object.entries(parsed.guilds).filter(([guild, values]) =>
+      values.honeypot && activations[guild]?.channelId !== values.honeypot);
+    if (missing.length) {
+      const startedAt = Date.now();
+      for (const [guild, values] of missing) activations[guild] = { channelId: values.honeypot, startedAt };
+      await writeJsonAtomically(path, { ...parsed, honeypotActivations: activations });
+    }
     settings = parsed.guilds;
     previousTickets = history;
     honeypotActivations = activations;
