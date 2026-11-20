@@ -27,7 +27,7 @@ export async function handleChatInputCommand(interaction) {
     return true;
   }
   if (interaction.commandName === "destinations") {
-    await interaction.reply({ content: "Use /config destinations list to find the new configuration commands.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: "Use /config view to see settings or /config edit to change them.", flags: MessageFlags.Ephemeral });
     return true;
   }
   if (interaction.commandName === "ticket") {

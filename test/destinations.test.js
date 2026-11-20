@@ -90,9 +90,10 @@ async function fixture(t) {
       isChatInputCommand: () => true, inCachedGuild: () => true,
       memberPermissions: admin ? allPermissions : noPermissions,
       options: {
-        getSubcommandGroup: () => "destinations",
-        getSubcommand: () => action, getString: name => { assert.equal(name, "destination"); return key; },
+        getSubcommand: () => action === "list" ? "view" : "edit",
+        getString: name => ({ action, setting: key, section: "destinations" })[name],
         getChannel: name => { assert.equal(name, "channel"); return channel; },
+        getRole: () => null,
         getBoolean: name => { assert.equal(name, "confirm_honeypot"); return confirm; }
       },
       async reply(options) { assert.equal(options.flags, MessageFlags.Ephemeral); responses.push(options); },
@@ -116,7 +117,7 @@ test("administrator selections cover every configured destination and survive a 
   ];
   for (const [index, [key, type]] of destinations.entries()) {
     const id = asId(index);
-    assert.match(await bot.run("set", key, bot.addChannel(id, type), { confirm: true }), new RegExp(id));
+    assert.match(await bot.run("set", key, bot.addChannel(id, type), { confirm: key === "honeypot" }), new RegExp(id));
     assert.equal(getDestinationOverride(guildId, key), id);
     assert.equal(getDestinationOverride(otherGuild, key), undefined);
   }
@@ -125,7 +126,7 @@ test("administrator selections cover every configured destination and survive a 
   await initializeDestinations(bot.path);
   for (const [index, [key]] of destinations.entries()) assert.equal(getDestinationOverride(guildId, key), asId(index));
   assert.match(await bot.run("list"), /Nikita X feed.*100000000000000019/);
-  assert.deepEqual(getAffectedBotFeatures(asId(0), guildId), ["welcome messages (/config destinations set destination:welcome)"]);
+  assert.deepEqual(getAffectedBotFeatures(asId(0), guildId), ["welcome messages (/config edit setting:welcome action:set)"]);
 });
 
 test("runtime permission checks reject ordinary members, revoked admins and channels in another guild", async t => {

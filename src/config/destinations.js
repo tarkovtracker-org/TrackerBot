@@ -136,7 +136,7 @@ export const getPreference = (guildId, key) => guildPreferences[guildId]?.[key] 
 export function getAffectedBotFeatures(channelId, guildId) {
   return Object.entries(destinations).filter(([key]) => getDestinationId(guildId, key) === channelId)
     .map(([key, { label, env }]) => {
-      const setting = getDestinationOverride(guildId, key) ? `/config destinations set destination:${key}` : env;
+      const setting = getDestinationOverride(guildId, key) ? `/config edit setting:${key} action:set` : env;
       return `${label.toLowerCase()} (${setting})`;
     });
 }

@@ -10,47 +10,18 @@ import { noMentions } from "../utils/messageReply.js";
 
 class DestinationError extends Error {}
 
-export function addDestinationOptions(group) {
-  function chooseDestination(subcommand) {
-    return subcommand.addStringOption(option => option.setName("destination")
-      .setDescription("Where TrackerBot sends messages or creates channels")
-      .setRequired(true).addChoices(...Object.entries(destinations).map(([value, { label: name }]) => ({ name, value }))));
-  }
-
-  function confirmHoneypot(subcommand) {
-    return subcommand.addBooleanOption(option => option.setName("confirm_honeypot")
-      .setDescription("Confirm that posting in the selected honeypot can ban users"));
-  }
-
-  return group.setName("destinations").setDescription("Manage channels and categories used by TrackerBot")
-    .addSubcommand(subcommand => subcommand.setName("list").setDescription("Show this server's bot destinations"))
-    .addSubcommand(subcommand => confirmHoneypot(chooseDestination(subcommand.setName("set")
-      .setDescription("Set a bot destination for this server"))
-      .addChannelOption(option => option.setName("channel").setDescription("Destination channel or category")
-        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildCategory).setRequired(true))))
-    .addSubcommand(subcommand => confirmHoneypot(chooseDestination(subcommand.setName("reset")
-      .setDescription("Restore the host default for a bot destination"))));
+export function listDestinations(guild) {
+  return Object.entries(destinations).map(([key, { label }]) => {
+    const id = getDestinationId(guild.id, key);
+    if (id && guild.channels.cache.has(id)) return `**${label}** <#${id}>`;
+    if (getDestinationOverride(guild.id, key)) return `**${label}** Configured channel unavailable`;
+    return `**${label}** No channel ID set for this server`;
+  }).join("\n");
 }
 
-export async function executeDestinations(interaction) {
-  const action = interaction.options.getSubcommand();
+export async function editDestination(interaction, key, id, confirmed) {
   const guild = interaction.guild;
-  if (action === "list") {
-    const lines = Object.entries(destinations).map(([key, { label }]) => {
-      const id = getDestinationId(guild.id, key);
-      if (id && guild.channels.cache.has(id)) return `**${label}** <#${id}>`;
-      if (getDestinationOverride(guild.id, key)) return `**${label}** Configured channel unavailable`;
-      return `**${label}** No channel ID set for this server`;
-    });
-    await interaction.reply({ content: lines.join("\n"), allowedMentions: noMentions, flags: MessageFlags.Ephemeral });
-    return;
-  }
-
-  const key = interaction.options.getString("destination", true);
-  if (!Object.hasOwn(destinations, key) || !["set", "reset"].includes(action)) throw new Error("Unexpected destination action");
   const { label, types, permissions } = destinations[key];
-  const id = action === "set" ? interaction.options.getChannel("channel", true).id : null;
-  const confirmed = interaction.options.getBoolean("confirm_honeypot");
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   let unusedWarningChannel;

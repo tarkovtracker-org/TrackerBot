@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PermissionFlagsBits, REST, Routes } from "discord.js";
+import { ApplicationCommandOptionType, PermissionFlagsBits, REST, Routes } from "discord.js";
+import { destinations } from "../src/config/destinations.js";
+import { preferences } from "../src/config/preferences.js";
 import { registerSlashCommands } from "../src/commands/registerSlashCommands.js";
 
 async function catalog(t) {
@@ -17,11 +19,15 @@ async function catalog(t) {
 test("one modern catalog replaces numbered FAQs, stale status notices and one-off bulk roles", async t => {
   const commands = await catalog(t);
   assert.deepEqual(commands.map(command => command.name), ["config", "tt", "message", "channel", "ticket", "support", "nuke"]);
-  const groups = commands.find(command => command.name === "config").options;
-  assert.deepEqual(groups.map(group => group.name), ["destinations", "support", "notifications"]);
-  for (const group of groups) {
-    assert.deepEqual(group.options.map(option => option.name), ["list", "set", "reset"]);
-  }
+  const config = commands.find(command => command.name === "config").options;
+  assert.deepEqual(config.map(option => [option.name, option.type]),
+    [["view", ApplicationCommandOptionType.Subcommand], ["edit", ApplicationCommandOptionType.Subcommand]]);
+  const [view, edit] = config;
+  assert.deepEqual(view.options[0].choices.map(choice => choice.value), ["destinations", "support", "notifications"]);
+  assert.deepEqual(edit.options.map(option => option.name), ["setting", "action", "channel", "role", "url", "confirm_honeypot"]);
+  assert.deepEqual(edit.options[0].choices.map(choice => choice.value),
+    [...Object.keys(destinations), ...Object.keys(preferences)]);
+  assert.deepEqual(edit.options[1].choices.map(choice => choice.value), ["set", "reset"]);
   assert.deepEqual(commands.find(command => command.name === "tt").options.map(option => option.name), ["url", "resources", "help"]);
   assert.deepEqual(commands.find(command => command.name === "channel").options.map(option => option.name), ["purge", "archive"]);
 });
