@@ -9,8 +9,8 @@ account tokens for smoke tests.
 ## Configuration
 
 Configure the nine support settings below. Server administrators can choose
-channels and categories with `/config destinations set` and contact URLs with
-`/config support set`. Configure the staff roles on the host.
+channels, categories, and contact URLs with `/config edit`. Configure the staff
+roles on the host.
 
 | Variable | Meaning |
 | --- | --- |
@@ -171,9 +171,10 @@ new account-ticket privacy disclosure; partial/invalid configuration fails close
 
 To disable rollout, remove/disable the new panel's interactive entry and point
 members to its permanent links. Remove all nine `SUPPORT_*` host settings and
-restart with the same settings file available. Use `/config destinations reset` for
-all five support channel and category overrides and `/config support reset` for
-both contact links. Check both groups with their `list` commands before enabling the legacy entry.
+restart with the same settings file available. Use `/config edit` with Reset to
+default for all five support destinations and both contact links. Check the
+Destinations and Support links sections in `/config view` before enabling the
+legacy entry.
 If you restore the help desk with different destinations later, update the
 existing panel with `/support panel message_id:<id>` before directing members to it.
 Preserve/review existing ticket channels and their explicit

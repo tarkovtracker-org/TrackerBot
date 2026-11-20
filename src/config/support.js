@@ -29,7 +29,7 @@ function id(value, name) {
 function supportDestinationId(guildId, key, name) {
   const value = getDestinationId(guildId, `support-${key}`);
   if (!/^\d{17,20}$/.test(value ?? "")) {
-    throw new SupportConfigurationError(`Choose the support destination with /config destinations set or configure ${name} on the host.`);
+    throw new SupportConfigurationError(`Choose the support destination with \`/config edit setting:support-${key} action:set channel:<channel-or-category>\` or configure ${name} on the host.`);
   }
   return value;
 }
@@ -44,7 +44,7 @@ export function isSupportConfigured(guildId) {
 function contactUrl(guildId, key) {
   const { env, parse } = supportLinks[key];
   const url = parse(getPreference(guildId, key));
-  if (!url) throw new SupportConfigurationError(`Set an HTTPS private-contact link with /config support set link:${key} or configure ${env} on the host.`);
+  if (!url) throw new SupportConfigurationError(`Set an HTTPS private-contact link with \`/config edit setting:${key} action:set url:<https-link>\` or configure ${env} on the host.`);
   return url;
 }
 

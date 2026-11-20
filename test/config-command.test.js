@@ -25,12 +25,13 @@ function botFixture() {
     roles: { async fetch(id) { return id ? role : new Collection([[roleId, role]]); } },
     members: { async fetch(options) { assert.deepEqual(options, { user: userId, force: true }); return member; } } };
 
-  async function command(group, action, values = {}, memberPermissions = permissions) {
+  async function command(subcommand, values, memberPermissions = permissions) {
     let result;
     const interaction = { commandName: "config", guild, guildId, memberPermissions, user: { id: userId },
       isChatInputCommand: () => true, inCachedGuild: () => true,
-      options: { getSubcommandGroup: () => group, getSubcommand: () => action,
-        getString: name => values[name], getRole: () => role },
+      options: { getSubcommand: () => subcommand, getString: name => values[name],
+        getRole: () => values.role, getChannel: () => values.channel,
+        getBoolean: name => values[name] },
       async reply(options) { assert.equal(options.flags, MessageFlags.Ephemeral); result = options.content; },
       async deferReply(options) { assert.equal(options.flags, MessageFlags.Ephemeral); },
       async editReply(options) { result = options.content; }
@@ -81,17 +82,17 @@ test("default storage saves support links without an env path and reloads them f
       else process.env[name] = value;
     }
   });
-  const values = { link: "contact", url: "https://example.test/contact" };
-  assert.match(await command("support", "set", values, new PermissionsBitField(0n)), /Only Discord server administrators/);
-  assert.match(await command("support", "set", { ...values, url: "https://secret@example.test" }), /without embedded credentials/);
-  assert.match(await command("support", "set", values), /saved/);
+  const values = { setting: "contact", action: "set", url: "https://example.test/contact" };
+  assert.match(await command("edit", values, new PermissionsBitField(0n)), /Only Discord server administrators/);
+  assert.match(await command("edit", { ...values, url: "https://secret@example.test" }), /without embedded credentials/);
+  assert.match(await command("edit", values), /saved/);
   assert.equal(JSON.parse(await readFile(path, "utf8")).preferences[guildId].contact, values.url);
   await initializeDestinations(null);
   await initializeDestinations();
   assert.equal(getSupportConfig(guildId).contactUrl, values.url);
   assert.equal(getSupportConfig(otherGuild).contactUrl, defaults.SUPPORT_CONTACT_URL);
-  assert.match(await command("support", "list"), /example\.test\/contact/);
-  assert.match(await command("support", "reset", values), /reset/);
+  assert.match(await command("view", { section: "support" }), /example\.test\/contact/);
+  assert.match(await command("edit", { setting: "contact", action: "reset" }), /reset/);
   assert.equal(getPreference(guildId, "contact"), defaults.SUPPORT_CONTACT_URL);
 });
 
@@ -100,33 +101,46 @@ test("notification settings extend existing files and the button applies the sav
   const { command, role, member, changes, clickNotification } = botFixture();
   await writeFile(path, JSON.stringify({ version: 1, guilds: { [guildId]: { welcome: roleId } } }));
   await initializeDestinations();
-  const values = { notification: "site" };
+  const values = { setting: "site", action: "set", role };
   member.permissions = new PermissionsBitField(0n);
-  assert.match(await command("notifications", "set", values), /administrator access changed/);
+  assert.match(await command("edit", values), /administrator access changed/);
   member.permissions = permissions;
   role.comparePositionTo = () => 1;
-  assert.match(await command("notifications", "set", values), /below your highest role/);
+  assert.match(await command("edit", values), /below your highest role/);
   role.comparePositionTo = () => -1;
   role.permissions = permissions;
-  assert.match(await command("notifications", "set", values), /basic communication permissions/);
+  assert.match(await command("edit", values), /basic communication permissions/);
   role.permissions = new PermissionsBitField(0n);
   const [result] = await Promise.all([
-    command("notifications", "set", values),
+    command("edit", values),
     updateDestination(otherGuild, "welcome", otherGuild, async () => {})
   ]);
   assert.match(result, /saved/);
   await initializeDestinations();
   assert.equal(getDestinationId(guildId, "welcome"), roleId);
   assert.equal(getDestinationId(otherGuild, "welcome"), otherGuild);
-  assert.match(await command("notifications", "list"), new RegExp(roleId));
+  assert.match(await command("view", { section: "notifications" }), new RegExp(roleId));
   await clickNotification();
   assert.deepEqual(changes, [roleId]);
   role.permissions = permissions;
   t.mock.method(console, "warn", () => {});
   await clickNotification();
   assert.deepEqual(changes, [roleId]);
-  assert.match(await command("notifications", "reset", values), /reset/);
+  assert.match(await command("edit", { setting: "site", action: "reset" }), /reset/);
   assert.equal(JSON.parse(await readFile(path, "utf8")).preferences[guildId], undefined);
+});
+
+test("edit rejects missing, mismatched and extra values before writing settings", async t => {
+  const path = await useDefaultStorage(t);
+  const { command, role } = botFixture();
+  const set = { setting: "contact", action: "set" };
+  const url = "https://example.test/contact";
+  for (const values of [set, { ...set, role }, { ...set, role, url }]) {
+    assert.match(await command("edit", values), /fill in only the `url` value/);
+  }
+  assert.match(await command("edit", { ...set, url, action: "reset" }), /leave channel, role, and url blank/);
+  assert.match(await command("edit", { ...set, url, confirm_honeypot: true }), /only for the honeypot/);
+  await assert.rejects(readFile(path, "utf8"), { code: "ENOENT" });
 });
 
 test("invalid saved preferences fail closed", async t => {

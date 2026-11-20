@@ -201,15 +201,15 @@ npm run start:web   # Public issue forms (http://localhost:3000)
 
 ## Discord settings
 
-Discord server administrators can use `/config`. Each group has `list`, `set`, and
-`reset`. Changes apply immediately and are isolated by server. Reset restores the
-environment default or built-in fallback.
+Discord server administrators can use two commands:
 
-| Command group | Settings |
-| --- | --- |
-| `/config destinations` | Posting channels and ticket or archive categories |
-| `/config support` | Private support and independent escalation contact links |
-| `/config notifications` | Roles assigned by the notification buttons |
+- `/config view` shows the selected section: destinations, support links, or notifications.
+- `/config edit` changes one setting. Choose a setting and select Set or Reset to default.
+  When setting a value, fill in the matching `channel`, `role`, or `url` field.
+  Leave those fields blank when resetting.
+
+Changes apply immediately and are isolated by server. Reset restores the
+environment default or built-in fallback.
 
 TrackerBot creates `.trackerbot-data` under its working directory at startup and
 saves settings in `discord-destinations.json`. Existing
@@ -248,7 +248,7 @@ on one bot instance:
 - `NIKITA_X_CHANNEL_ID` is the destination channel. Give the bot View Channel, Send Messages,
   Embed Links, Attach Files, and Read Message History.
 - `NIKITA_X_GUILD_ID` is the server allowed to manage the feed through
-  `/config destinations set destination:nikita`. Guild-only setup uses the default
+  `/config edit setting:nikita action:set`. Guild-only setup uses the default
   settings file or the existing path override.
   In the server, the Discord setting takes precedence over the host's channel ID. Leaving both channel settings
   empty pauses new delivery. X and translator credentials stay on the host.
@@ -454,8 +454,8 @@ smoke tests first. Official API references:
 
 ## Notification-role configuration
 
-Existing button custom IDs remain recognized. Use `/config notifications set` to
-choose a role. Configured IDs survive role renames. The environment defaults are
+Existing button custom IDs remain recognized. Use `/config edit` to choose a
+notification setting and role. Configured IDs survive role renames. The environment defaults are
 `REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
 `REACTION_ROLE_POLLS_ID`, `REACTION_ROLE_NEWS_ID`, `REACTION_ROLE_NOTIFS_ID`.
 Unset/blank values use the legacy names `site`, `monitor`, `polls`, `news`, `notifs`
