@@ -52,3 +52,18 @@ CI (`.github/workflows/ci.yml`) runs: `npm ci` -> syntax check all JS -> `npm te
 - Conventional commit style (`feat:`, `fix:`, `chore:`, `refactor:`).
 - Branch naming: `<type>/<short-desc>` (e.g. `feat/honeypot`, `chore/add-agents-md`).
 - PRs target `main`. Use `gh` for all GitHub operations.
+
+### Owner-authorized merges
+
+TrackerBot's normal merge path requires independent approval. GitHub PR authors
+cannot approve their own PRs. TrackerBot's independent-review ruleset lists
+`DysektAI` for pull-request-only bypass. Verify the active rulesets and the
+authenticated account before relying on that exception. Repository admin access
+alone does not establish bypass eligibility.
+
+Use the exception only when the owner authorizes it for that PR. First verify
+the current head is up to date, both required CI jobs pass, review threads are
+resolved, and no human reviewer has a hold. Then use
+`gh pr merge <number> --admin --squash --match-head-commit <verified-head-sha>`.
+The separate required-CI ruleset has no bypass actors. If the exception is
+unavailable, get an independent approval through the normal review path.
