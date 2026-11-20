@@ -5,7 +5,7 @@ import { executeArchive } from "../commands/archiveCommand.js";
 import { executeWipe } from "../commands/wipeCommand.js";
 import { executeNuke } from "../commands/nukeCommand.js";
 import { executeSupport } from "../commands/supportCommand.js";
-import { executeDestinations } from "../commands/destinationsCommand.js";
+import { executeConfig } from "../commands/configCommand.js";
 import { handleSupportInteraction } from "./supportHandlers.js";
 
 // One in-flight moderation action per guild/channel, including its confirmation.
@@ -22,8 +22,12 @@ export async function handleChatInputCommand(interaction) {
     await executeResource(interaction);
     return true;
   }
+  if (interaction.commandName === "config") {
+    await executeConfig(interaction);
+    return true;
+  }
   if (interaction.commandName === "destinations") {
-    await executeDestinations(interaction);
+    await interaction.reply({ content: "Use /config destinations list to find the new configuration commands.", flags: MessageFlags.Ephemeral });
     return true;
   }
   if (interaction.commandName === "ticket") {

@@ -86,10 +86,11 @@ async function fixture(t) {
   async function run(action, key, channel, { confirm = false, admin = true } = {}) {
     const responses = [];
     const interaction = {
-      commandName: "destinations", guild, guildId, user: { id: userId },
+      commandName: "config", guild, guildId, user: { id: userId },
       isChatInputCommand: () => true, inCachedGuild: () => true,
       memberPermissions: admin ? allPermissions : noPermissions,
       options: {
+        getSubcommandGroup: () => "destinations",
         getSubcommand: () => action, getString: name => { assert.equal(name, "destination"); return key; },
         getChannel: name => { assert.equal(name, "channel"); return channel; },
         getBoolean: name => { assert.equal(name, "confirm_honeypot"); return confirm; }
@@ -124,7 +125,7 @@ test("administrator selections cover every configured destination and survive a 
   await initializeDestinations(bot.path);
   for (const [index, [key]] of destinations.entries()) assert.equal(getDestinationOverride(guildId, key), asId(index));
   assert.match(await bot.run("list"), /Nikita X feed.*100000000000000019/);
-  assert.deepEqual(getAffectedBotFeatures(asId(0), guildId), ["welcome messages (/destinations set destination:welcome)"]);
+  assert.deepEqual(getAffectedBotFeatures(asId(0), guildId), ["welcome messages (/config destinations set destination:welcome)"]);
 });
 
 test("runtime permission checks reject ordinary members, revoked admins and channels in another guild", async t => {
@@ -342,7 +343,7 @@ test("clearing the destination store drops its overrides and prevents further wr
   await initializeDestinations(null);
   assert.equal(canConfigureDestinations(), false);
   assert.equal(getDestinationOverride(guildId, "welcome"), undefined);
-  assert.match(await bot.run("set", "welcome", channel), /configure persistent destination storage/);
+  assert.match(await bot.run("set", "welcome", channel), /settings storage is unavailable/);
 });
 
 test("atomic writes sync the parent directory after replacing the file on POSIX", async t => {

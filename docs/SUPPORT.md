@@ -8,9 +8,9 @@ account tokens for smoke tests.
 
 ## Configuration
 
-Configure the nine support settings below. With persistent Discord destination
-settings enabled, server administrators can set the five channel and category
-IDs with `/destinations set`. Configure the staff roles and contact URLs on the host.
+Configure the nine support settings below. Server administrators can choose
+channels and categories with `/config destinations set` and contact URLs with
+`/config support set`. Configure the staff roles on the host.
 
 | Variable | Meaning |
 | --- | --- |
@@ -31,6 +31,8 @@ may hold both staff roles; non-overlapping IDs do not prove separate personnel.
 Review memberships, including the independent escalation contact, before launch.
 Contact links are deliberately public; never put credentials in them. The bot
 validates URL shape, not the identity, availability, or independence of contacts.
+After changing a contact link, update the published panel with
+`/support panel message_id:<id>` to refresh its buttons.
 
 The three help destinations must be ordinary server text channels. Ensure intended
 member roles can view them. Product dropdown routing rechecks the requesting
@@ -169,9 +171,9 @@ new account-ticket privacy disclosure; partial/invalid configuration fails close
 
 To disable rollout, remove/disable the new panel's interactive entry and point
 members to its permanent links. Remove all nine `SUPPORT_*` host settings and
-restart with destination storage enabled. Use `/destinations reset` for all five
-support channel and category overrides. Verify each reset with `/destinations list`
-before enabling the legacy entry.
+restart with the same settings file available. Use `/config destinations reset` for
+all five support channel and category overrides and `/config support reset` for
+both contact links. Check both groups with their `list` commands before enabling the legacy entry.
 If you restore the help desk with different destinations later, update the
 existing panel with `/support panel message_id:<id>` before directing members to it.
 Preserve/review existing ticket channels and their explicit

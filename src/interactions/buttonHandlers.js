@@ -38,7 +38,7 @@ export async function handleButtonInteraction(interaction) {
   activeButtons.add(key);
   try {
     if (ticket) await withDestinationReadLock(interaction.guild.id, () => handleTicketCreation(interaction));
-    else await toggleReactionRole(interaction, roleName);
+    else await withDestinationReadLock(interaction.guild.id, () => toggleReactionRole(interaction, roleName));
   } finally {
     activeButtons.delete(key);
   }
@@ -225,7 +225,7 @@ async function toggleReactionRole(interaction, roleName) {
   const guild = interaction.guild;
   try {
     const roles = await guild.roles.fetch();
-    const roleId = getNotificationRoleId(interaction.customId);
+    const roleId = getNotificationRoleId(interaction.customId, guild.id);
     const role = roleId ? roles.get(roleId) : roles.find(candidate =>
       candidate.name.trim().toLowerCase() === roleName.toLowerCase()
     );

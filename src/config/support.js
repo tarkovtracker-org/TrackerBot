@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { ChannelType, OverwriteType, PermissionFlagsBits } from "discord.js";
-import { getDestinationId, getPreviousTicketParent } from "./destinations.js";
+import { getDestinationId, getPreference, getPreviousTicketParent } from "./destinations.js";
+import { supportLinks } from "./preferences.js";
 
 export const supportMenuId = "support:route:v1";
 export const supportProducts = {
@@ -28,28 +29,23 @@ function id(value, name) {
 function supportDestinationId(guildId, key, name) {
   const value = getDestinationId(guildId, `support-${key}`);
   if (!/^\d{17,20}$/.test(value ?? "")) {
-    throw new SupportConfigurationError(`Choose the support destination with /destinations set or configure ${name} on the host.`);
+    throw new SupportConfigurationError(`Choose the support destination with /config destinations set or configure ${name} on the host.`);
   }
   return value;
 }
 
 export function isSupportConfigured(guildId) {
-  const names = [
-    ...Object.values(supportTicketTypes).map(({ prefix }) => `${prefix}_STAFF_ROLE_IDS`),
-    "SUPPORT_CONTACT_URL", "SUPPORT_ESCALATION_URL"
-  ];
-  return names.some(name => Boolean(process.env[name]?.trim()))
+  return Object.values(supportTicketTypes).some(({ prefix }) => Boolean(process.env[`${prefix}_STAFF_ROLE_IDS`]?.trim()))
+    || Object.keys(supportLinks).some(key => Boolean(getPreference(guildId, key)))
     || [...Object.keys(supportProducts), ...Object.keys(supportTicketTypes)]
       .some(key => Boolean(getDestinationId(guildId, `support-${key}`)));
 }
 
-function contactUrl(name) {
-  let url;
-  try { url = new URL(process.env[name]?.trim()); } catch { throw new SupportConfigurationError(`Configure ${name} as an HTTPS private-contact link.`); }
-  if (url.protocol !== "https:" || url.username || url.password || url.href.length > 512) {
-    throw new SupportConfigurationError(`Configure ${name} as an HTTPS private-contact link.`);
-  }
-  return url.href;
+function contactUrl(guildId, key) {
+  const { env, parse } = supportLinks[key];
+  const url = parse(getPreference(guildId, key));
+  if (!url) throw new SupportConfigurationError(`Set an HTTPS private-contact link with /config support set link:${key} or configure ${env} on the host.`);
+  return url;
 }
 
 function staffRoleIds(prefix) {
@@ -77,7 +73,7 @@ export function getSupportConfig(guildId) {
       tickets.account.roleIds.some(roleId => tickets.moderation.roleIds.includes(roleId))) {
     throw new SupportConfigurationError("Account and moderation support need separate categories and non-overlapping staff roles.");
   }
-  return { products, tickets, contactUrl: contactUrl("SUPPORT_CONTACT_URL"), escalationUrl: contactUrl("SUPPORT_ESCALATION_URL") };
+  return { products, tickets, contactUrl: contactUrl(guildId, "contact"), escalationUrl: contactUrl(guildId, "escalation") };
 }
 
 export async function loadSupportContext(guild) {
