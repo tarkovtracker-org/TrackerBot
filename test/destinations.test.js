@@ -129,6 +129,18 @@ test("administrator selections cover every configured destination and survive a 
   assert.deepEqual(getAffectedBotFeatures(asId(0), guildId), ["welcome messages (/config edit setting:welcome action:set)"]);
 });
 
+test("destination view distinguishes unavailable host defaults and overrides from unset destinations", async t => {
+  const bot = await fixture(t);
+  env(t, "WELCOME_CHANNEL_ID", asId(1));
+  const helpChannel = bot.addChannel(asId(2));
+  await bot.run("set", "support-tracker", helpChannel);
+  bot.channels.delete(helpChannel.id);
+  const view = await bot.run("list");
+  assert.match(view, /Welcome messages\*\* Host default channel unavailable/);
+  assert.match(view, /TarkovTracker public help\*\* Configured channel unavailable/);
+  assert.match(view, /Honeypot\*\* No channel ID set for this server/);
+});
+
 test("runtime permission checks reject ordinary members, revoked admins and channels in another guild", async t => {
   const bot = await fixture(t);
   const valid = bot.addChannel(asId(1));

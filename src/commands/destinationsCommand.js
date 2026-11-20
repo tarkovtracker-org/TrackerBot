@@ -15,6 +15,7 @@ export function listDestinations(guild) {
     const id = getDestinationId(guild.id, key);
     if (id && guild.channels.cache.has(id)) return `**${label}** <#${id}>`;
     if (getDestinationOverride(guild.id, key)) return `**${label}** Configured channel unavailable`;
+    if (id) return `**${label}** Host default channel unavailable`;
     return `**${label}** No channel ID set for this server`;
   }).join("\n");
 }

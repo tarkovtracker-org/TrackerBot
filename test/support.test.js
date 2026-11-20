@@ -248,9 +248,14 @@ test("uncertain create does not retry and releases the process lock", async () =
   assert.equal(f.created.length, 1);
 });
 
-test("missing support destination diagnostics mention Discord settings and the host fallback", () => {
+test("missing support destination diagnostics include the full Discord command and host fallback", () => {
   delete process.env.SUPPORT_TRACKER_CHANNEL_ID;
-  assert.throws(() => getSupportConfig(ids.guild), /\/config edit setting:support-tracker.*SUPPORT_TRACKER_CHANNEL_ID/);
+  assert.throws(() => getSupportConfig(ids.guild), /\/config edit setting:support-tracker action:set channel:<channel-or-category>.*SUPPORT_TRACKER_CHANNEL_ID/);
+});
+
+test("missing support contact diagnostics include the full Discord command and host fallback", () => {
+  delete process.env.SUPPORT_CONTACT_URL;
+  assert.throws(() => getSupportConfig(ids.guild), /\/config edit setting:contact action:set url:<https-link>.*SUPPORT_CONTACT_URL/);
 });
 
 test("existing tickets remain manageable after the configured category moves", async t => {
