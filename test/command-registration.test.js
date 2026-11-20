@@ -16,7 +16,12 @@ async function catalog(t) {
 
 test("one modern catalog replaces numbered FAQs, stale status notices and one-off bulk roles", async t => {
   const commands = await catalog(t);
-  assert.deepEqual(commands.map(command => command.name), ["destinations", "tt", "message", "channel", "ticket", "support", "nuke"]);
+  assert.deepEqual(commands.map(command => command.name), ["config", "tt", "message", "channel", "ticket", "support", "nuke"]);
+  const groups = commands.find(command => command.name === "config").options;
+  assert.deepEqual(groups.map(group => group.name), ["destinations", "support", "notifications"]);
+  for (const group of groups) {
+    assert.deepEqual(group.options.map(option => option.name), ["list", "set", "reset"]);
+  }
   assert.deepEqual(commands.find(command => command.name === "tt").options.map(option => option.name), ["url", "resources", "help"]);
   assert.deepEqual(commands.find(command => command.name === "channel").options.map(option => option.name), ["purge", "archive"]);
 });
@@ -25,7 +30,7 @@ test("commands are guild-installed/guild-only with restrictive administrative de
   for (const command of await catalog(t)) {
     assert.deepEqual(command.contexts, [0]);
     assert.deepEqual(command.integration_types, [0]);
-    if (command.name === "destinations") assert.equal(command.default_member_permissions, String(PermissionFlagsBits.Administrator));
+    if (command.name === "config") assert.equal(command.default_member_permissions, String(PermissionFlagsBits.Administrator));
     else if (!["tt", "ticket"].includes(command.name)) assert.equal(command.default_member_permissions, "0");
     assert.equal(command.dm_permission, undefined, "do not use deprecated DM permissions");
   }

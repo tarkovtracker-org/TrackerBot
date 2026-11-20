@@ -199,17 +199,28 @@ npm run start:web   # Public issue forms (http://localhost:3000)
 - Bot login success is logged as soon as Discord authenticates the token.
 - `webserver.js` serves `http://localhost:3000` (issue portal), plus `http://localhost:3000/issue` and `http://localhost:3000/data` (forms).
 
-## Discord destination settings
+## Discord settings
 
-Discord server administrators can use `/destinations list`, `/destinations set`, and
-`/destinations reset`. Set selects a channel or category in that server. Reset
-restores the host's default. Settings take effect without restarting the bot and
-are isolated by server.
+Discord server administrators can use `/config`. Each group has `list`, `set`, and
+`reset`. Changes apply immediately and are isolated by server. Reset restores the
+environment default or built-in fallback.
 
-The bot host enables writes by setting `TRACKERBOT_DESTINATIONS_FILE` to an
-absolute file path in an existing writable directory on persistent storage.
-Use one bot process for this file, including during deploys. Existing environment
-channel IDs remain defaults. A welcome channel can be supplied either way.
+| Command group | Settings |
+| --- | --- |
+| `/config destinations` | Posting channels and ticket or archive categories |
+| `/config support` | Private support and independent escalation contact links |
+| `/config notifications` | Roles assigned by the notification buttons |
+
+TrackerBot creates `.trackerbot-data` under its working directory at startup and
+saves settings in `discord-destinations.json`. Existing
+`TRACKERBOT_DESTINATIONS_FILE` overrides and stored destinations still work. An
+override must be an absolute file path in a writable directory that already exists.
+Keep credentials and ticket staff access settings in the deployment configuration.
+
+In Coolify, mount a writable volume at the settings **directory** inside the
+container, for example `/app/.trackerbot-data` if the process runs from `/app`.
+Reuse the same mount on each deployment. Use one bot process for the settings file,
+including during deploys. See the [Coolify storage guide](https://coolify.io/docs/applications/configuration/persistent-storage).
 
 | Destination | Where it routes |
 | --- | --- |
@@ -237,8 +248,8 @@ on one bot instance:
 - `NIKITA_X_CHANNEL_ID` is the destination channel. Give the bot View Channel, Send Messages,
   Embed Links, Attach Files, and Read Message History.
 - `NIKITA_X_GUILD_ID` is the server allowed to manage the feed through
-  `/destinations set destination:nikita`. Guild-only setup requires an absolute
-  `TRACKERBOT_DESTINATIONS_FILE`. Channel-ID-only setup can omit that file.
+  `/config destinations set destination:nikita`. Guild-only setup uses the default
+  settings file or the existing path override.
   In the server, the Discord setting takes precedence over the host's channel ID. Leaving both channel settings
   empty pauses new delivery. X and translator credentials stay on the host.
 - `NIKITA_X_BEARER_TOKEN` is an X app-only token with User Lookup, User Posts timeline,
@@ -443,8 +454,9 @@ smoke tests first. Official API references:
 
 ## Notification-role configuration
 
-Existing button custom IDs remain recognized; availability depends on the role
-safety checks below. Optional stable ID overrides survive role renames: `REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
+Existing button custom IDs remain recognized. Use `/config notifications set` to
+choose a role. Configured IDs survive role renames. The environment defaults are
+`REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
 `REACTION_ROLE_POLLS_ID`, `REACTION_ROLE_NEWS_ID`, `REACTION_ROLE_NOTIFS_ID`.
 Unset/blank values use the legacy names `site`, `monitor`, `polls`, `news`, `notifs`
 (case-insensitive, trimmed). Invalid explicit IDs never silently fall back.

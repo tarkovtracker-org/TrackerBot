@@ -1,7 +1,9 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { ChannelType, PermissionFlagsBits as Permission } from "discord.js";
 import { writeJsonAtomically } from "../utils/writeJsonAtomically.js";
+import { getConfigPath } from "./configPath.js";
+import { preferences } from "./preferences.js";
 
 const text = [ChannelType.GuildText];
 const announcements = [...text, ChannelType.GuildAnnouncement];
@@ -35,6 +37,7 @@ let file;
 let settings = {};
 let previousTickets = {};
 let honeypotActivations = {};
+let guildPreferences = {};
 let writes = Promise.resolve();
 const guildOperations = new Map();
 
@@ -60,12 +63,19 @@ function withDestinationLock(guildId, run, exclusive) {
 
 export const withDestinationReadLock = (guildId, run) => withDestinationLock(guildId, run, false);
 
-export async function initializeDestinations(path = process.env.TRACKERBOT_DESTINATIONS_FILE?.trim()) {
+export async function initializeDestinations(path) {
+  if (path === undefined) {
+    path = getConfigPath();
+    if (!process.env.TRACKERBOT_DESTINATIONS_FILE?.trim()) {
+      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    }
+  }
   if (!path) {
     file = undefined;
     settings = {};
     previousTickets = {};
     honeypotActivations = {};
+    guildPreferences = {};
     return;
   }
   if (!isAbsolute(path)) throw new Error("TRACKERBOT_DESTINATIONS_FILE must be absolute.");
@@ -78,19 +88,20 @@ export async function initializeDestinations(path = process.env.TRACKERBOT_DESTI
   }
   if (data !== null) {
     const parsed = JSON.parse(data);
-    if (parsed?.version !== 1 || !parsed.guilds || Array.isArray(parsed.guilds) || typeof parsed.guilds !== "object"
-        || !Object.entries(parsed.guilds).every(([guild, values]) => isDiscordId(guild) && values
-          && typeof values === "object" && !Array.isArray(values) && Object.entries(values).every(([key, value]) =>
-            Object.hasOwn(destinations, key) && isDiscordId(value)))) {
+    if (parsed?.version !== 1 || !isGuildMap(parsed.guilds, (key, value) =>
+      Object.hasOwn(destinations, key) && isDiscordId(value))) {
       throw new Error("The Discord destination settings file is invalid.");
     }
     const history = parsed.previousTickets ?? {};
     const activations = parsed.honeypotActivations ?? {};
-    if (typeof history !== "object" || !history || Array.isArray(history)
-        || !Object.entries(history).every(([guild, values]) => isDiscordId(guild) && values
-          && typeof values === "object" && !Array.isArray(values) && Object.entries(values).every(([key, ids]) =>
-            ticketDestinationKeys.has(key) && ids && typeof ids === "object" && !Array.isArray(ids)
-            && Object.entries(ids).every(([id, category]) => isDiscordId(id) && isDiscordId(category))))) {
+    const savedPreferences = parsed.preferences ?? {};
+    if (!isGuildMap(savedPreferences, (key, value) =>
+      Object.hasOwn(preferences, key) && preferences[key].parse(value) === value)) {
+      throw new Error("The Discord preferences in the settings file are invalid.");
+    }
+    if (!isGuildMap(history, (key, ids) => ticketDestinationKeys.has(key) &&
+      ids && typeof ids === "object" && !Array.isArray(ids) &&
+      Object.entries(ids).every(([id, category]) => isDiscordId(id) && isDiscordId(category)))) {
       throw new Error("The Discord ticket destination history is invalid.");
     }
     if (typeof activations !== "object" || Array.isArray(activations)
@@ -108,10 +119,12 @@ export async function initializeDestinations(path = process.env.TRACKERBOT_DESTI
     settings = parsed.guilds;
     previousTickets = history;
     honeypotActivations = activations;
+    guildPreferences = savedPreferences;
   } else {
     settings = {};
     previousTickets = {};
     honeypotActivations = {};
+    guildPreferences = {};
   }
   file = path;
 }
@@ -119,10 +132,11 @@ export async function initializeDestinations(path = process.env.TRACKERBOT_DESTI
 export const canConfigureDestinations = () => Boolean(file);
 export const getDestinationOverride = (guildId, key) => settings[guildId]?.[key];
 export const getDestinationId = (guildId, key) => getDestinationOverride(guildId, key) ?? process.env[destinations[key].env]?.trim();
+export const getPreference = (guildId, key) => guildPreferences[guildId]?.[key] ?? process.env[preferences[key].env]?.trim();
 export function getAffectedBotFeatures(channelId, guildId) {
   return Object.entries(destinations).filter(([key]) => getDestinationId(guildId, key) === channelId)
     .map(([key, { label, env }]) => {
-      const setting = getDestinationOverride(guildId, key) ? `/destinations set destination:${key}` : env;
+      const setting = getDestinationOverride(guildId, key) ? `/config destinations set destination:${key}` : env;
       return `${label.toLowerCase()} (${setting})`;
     });
 }
@@ -135,6 +149,57 @@ export function getHoneypotCutoff(guildId, channelId) {
   return getDestinationOverride(guildId, "honeypot") ? Infinity : 0;
 }
 
+function isGuildMap(value, validEntry) {
+  return value && typeof value === "object" && !Array.isArray(value) &&
+    Object.entries(value).every(([guild, entries]) => isDiscordId(guild) && entries &&
+      typeof entries === "object" && !Array.isArray(entries) &&
+      Object.entries(entries).every(([key, entry]) => validEntry(key, entry)));
+}
+
+function withGuildSetting(map, guildId, entries) {
+  const next = { ...map };
+  if (Object.keys(entries).length) next[guildId] = entries;
+  else delete next[guildId];
+  return next;
+}
+
+function queueWrite(buildState) {
+  let replaced = false;
+  const update = writes.then(async () => {
+    const next = buildState({ version: 1, guilds: settings, previousTickets, honeypotActivations, preferences: guildPreferences });
+    await writeJsonAtomically(file, next, () => {
+      replaced = true;
+      settings = next.guilds;
+      previousTickets = next.previousTickets;
+      honeypotActivations = next.honeypotActivations;
+      guildPreferences = next.preferences;
+    });
+    return true;
+  }).catch(error => {
+    if (!replaced) throw error;
+    console.warn("Could not sync the Discord settings directory", { code: error?.code ?? "unknown" });
+    return false;
+  });
+  writes = update.catch(() => {});
+  return update;
+}
+
+export function updatePreference(guildId, key, value, validate) {
+  if (!file || !isDiscordId(guildId) || !Object.hasOwn(preferences, key)
+      || (value !== null && (typeof value !== "string" || preferences[key].parse(value) !== value))) {
+    throw new Error("Invalid Discord preference update.");
+  }
+  return withDestinationLock(guildId, async () => {
+    await validate();
+    return queueWrite(state => {
+      const next = { ...state.preferences[guildId] };
+      if (value === null) delete next[key];
+      else next[key] = value;
+      return { ...state, preferences: withGuildSetting(state.preferences, guildId, next) };
+    });
+  }, true);
+}
+
 export function updateDestination(guildId, key, channelId, validate) {
   if (!file || !isDiscordId(guildId) || !Object.hasOwn(destinations, key)
       || channelId !== null && !isDiscordId(channelId)) {
@@ -145,12 +210,11 @@ export function updateDestination(guildId, key, channelId, validate) {
     if (channelId === null) delete next[key];
     else next[key] = channelId;
     let rollback;
-    let replaced = false;
     try {
       const previous = await validate(next, undo => { rollback = undo; });
-      const update = writes.then(async () => {
-        const history = { ...previousTickets };
-        const activations = { ...honeypotActivations };
+      return await queueWrite(state => {
+        const history = { ...state.previousTickets };
+        const activations = { ...state.honeypotActivations };
         if (key === "honeypot") {
           const activeId = previous?.honeypotChannelId;
           if (!activeId) delete activations[guildId];
@@ -168,24 +232,10 @@ export function updateDestination(guildId, key, channelId, validate) {
           if (Object.keys(guildHistory).length) history[guildId] = guildHistory;
           else delete history[guildId];
         }
-        const guilds = { ...settings };
-        if (Object.keys(next).length) guilds[guildId] = next;
-        else delete guilds[guildId];
-        await writeJsonAtomically(file, { version: 1, guilds, previousTickets: history, honeypotActivations: activations }, () => {
-          replaced = true;
-          settings = guilds;
-          previousTickets = history;
-          honeypotActivations = activations;
-        });
+        return { ...state, guilds: withGuildSetting(state.guilds, guildId, next),
+          previousTickets: history, honeypotActivations: activations };
       });
-      writes = update.catch(() => {});
-      await update;
-      return true;
     } catch (error) {
-      if (replaced) {
-        console.warn("Could not sync the Discord destination settings directory", { code: error?.code ?? "unknown" });
-        return false;
-      }
       if (rollback) {
         try {
           await rollback();

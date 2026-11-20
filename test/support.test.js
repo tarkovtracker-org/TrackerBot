@@ -250,7 +250,7 @@ test("uncertain create does not retry and releases the process lock", async () =
 
 test("missing support destination diagnostics mention Discord settings and the host fallback", () => {
   delete process.env.SUPPORT_TRACKER_CHANNEL_ID;
-  assert.throws(() => getSupportConfig(ids.guild), /\/destinations set.*SUPPORT_TRACKER_CHANNEL_ID/);
+  assert.throws(() => getSupportConfig(ids.guild), /\/config destinations set.*SUPPORT_TRACKER_CHANNEL_ID/);
 });
 
 test("existing tickets remain manageable after the configured category moves", async t => {

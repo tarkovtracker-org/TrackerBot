@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { defaultConfigDirectory, getConfigPath } from "./configPath.js";
 
 const requiredEnvVars = [
   "DISCORD_TOKEN",
@@ -31,8 +32,15 @@ export function ensureWebEnvVars(env = process.env) {
   }
 }
 
-function canonicalStatePath(file) {
-  const canonical = resolve(realpathSync.native(dirname(file)), basename(file));
+function canonicalStatePath(file, useDefaultDirectory = false) {
+  let directory;
+  try {
+    directory = realpathSync.native(dirname(file));
+  } catch (error) {
+    if (!useDefaultDirectory || error.code !== "ENOENT") throw error;
+    directory = resolve(realpathSync.native("."), defaultConfigDirectory);
+  }
+  const canonical = resolve(directory, basename(file));
   return process.platform === "win32" ? canonical.toLowerCase() : canonical;
 }
 
@@ -43,7 +51,7 @@ export function getNikitaXFeedConfig(env = process.env) {
 
   const bearerToken = env.NIKITA_X_BEARER_TOKEN?.trim();
   const stateFile = env.NIKITA_X_STATE_FILE?.trim();
-  const destinationsFile = env.TRACKERBOT_DESTINATIONS_FILE?.trim();
+  const destinationsFile = getConfigPath(env);
   const translateUrl = URL.parse(env.NIKITA_X_TRANSLATE_URL?.trim() ?? "");
   if ((channelId && !/^\d{17,20}$/.test(channelId)) || (guildId && !/^\d{17,20}$/.test(guildId))
       || !bearerToken || !stateFile || !isAbsolute(stateFile)
@@ -51,11 +59,11 @@ export function getNikitaXFeedConfig(env = process.env) {
       || translateUrl.search || translateUrl.hash) {
     throw new Error("Invalid Nikita X feed configuration. Check the NIKITA_X_* settings.");
   }
-  if ((!channelId && !destinationsFile) || (destinationsFile && !isAbsolute(destinationsFile))) {
+  if (!isAbsolute(destinationsFile)) {
     throw new Error("Invalid Nikita X feed configuration. Set TRACKERBOT_DESTINATIONS_FILE to an absolute path.");
   }
   try {
-    if (destinationsFile && canonicalStatePath(destinationsFile) === canonicalStatePath(stateFile)) throw new Error();
+    if (canonicalStatePath(destinationsFile, !env.TRACKERBOT_DESTINATIONS_FILE?.trim()) === canonicalStatePath(stateFile)) throw new Error();
   } catch {
     throw new Error("Invalid Nikita X feed configuration. NIKITA_X_STATE_FILE and TRACKERBOT_DESTINATIONS_FILE must use separate files in existing directories.");
   }

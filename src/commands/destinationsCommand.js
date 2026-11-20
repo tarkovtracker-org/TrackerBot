@@ -1,6 +1,6 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits as Permission } from "discord.js";
 import {
-  destinations, canConfigureDestinations, getDestinationId, getDestinationOverride,
+  destinations, getDestinationId, getDestinationOverride,
   getPreviousTickets, ticketDestinationKeys, updateDestination, withDestinationReadLock
 } from "../config/destinations.js";
 import { getNikitaXFeedConfig } from "../config/env.js";
@@ -10,7 +10,7 @@ import { noMentions } from "../utils/messageReply.js";
 
 class DestinationError extends Error {}
 
-export function addDestinationOptions(command) {
+export function addDestinationOptions(group) {
   function chooseDestination(subcommand) {
     return subcommand.addStringOption(option => option.setName("destination")
       .setDescription("Where TrackerBot sends messages or creates channels")
@@ -22,7 +22,7 @@ export function addDestinationOptions(command) {
       .setDescription("Confirm that posting in the selected honeypot can ban users"));
   }
 
-  return command.setDefaultMemberPermissions(Permission.Administrator)
+  return group.setName("destinations").setDescription("Manage channels and categories used by TrackerBot")
     .addSubcommand(subcommand => subcommand.setName("list").setDescription("Show this server's bot destinations"))
     .addSubcommand(subcommand => confirmHoneypot(chooseDestination(subcommand.setName("set")
       .setDescription("Set a bot destination for this server"))
@@ -33,10 +33,6 @@ export function addDestinationOptions(command) {
 }
 
 export async function executeDestinations(interaction) {
-  if (!interaction.memberPermissions?.has(Permission.Administrator)) {
-    await interaction.reply({ content: "Only Discord server administrators can configure bot destinations.", flags: MessageFlags.Ephemeral });
-    return;
-  }
   const action = interaction.options.getSubcommand();
   const guild = interaction.guild;
   if (action === "list") {
@@ -50,10 +46,6 @@ export async function executeDestinations(interaction) {
     return;
   }
 
-  if (!canConfigureDestinations()) {
-    await interaction.reply({ content: "The bot host must configure persistent destination storage first.", flags: MessageFlags.Ephemeral });
-    return;
-  }
   const key = interaction.options.getString("destination", true);
   if (!Object.hasOwn(destinations, key) || !["set", "reset"].includes(action)) throw new Error("Unexpected destination action");
   const { label, types, permissions } = destinations[key];
