@@ -253,15 +253,24 @@ Attach Files, and Read Message History there. Use `action:reset` to pause new al
   directory. The file tracks post and Discord message IDs across restarts. Run one
   feed instance at a time, including during deploys, and preserve this file and the
   Discord destination settings. TrackerBot upgrades single-server feed state in place.
+  Earlier workers cannot read the upgraded version 2 file. A rollback requires
+  the pre-upgrade feed and destination files. The default destination settings path
+  is `.trackerbot-data/discord-destinations.json` relative to the working directory.
+  Keep that directory persistent, or set `TRACKERBOT_DESTINATIONS_FILE` to an absolute
+  path on a persistent volume.
 - `NIKITA_X_TRANSLATE_URL` is the HTTPS `/translate` URL for your LibreTranslate-compatible
   service. Post text is sent there for translation when needed. Set
   `NIKITA_X_TRANSLATE_API_KEY` if the service requires a key.
 - Existing deployments can keep `NIKITA_X_CHANNEL_ID` as the default for the server
   that owns it and `NIKITA_X_GUILD_ID` as an optional explicit binding for that channel.
   Discord settings override this default, including an explicit pause.
+  If access to an older destination prevents migration, restore the bot's access to
+  resume that feed or use Discord to start a fresh subscription. The older receipts
+  remain on disk for reconciliation when the channel becomes accessible again.
 
-TrackerBot shares one timeline poll across subscribed servers and tracks their delivery
-progress independently. New and resumed subscriptions start at the latest post on
+TrackerBot shares the regular timeline poll across subscribed servers and tracks their
+delivery progress independently. Servers retrying a failed delivery can share a separate
+catch-up read after the regular poll. New and resumed subscriptions start at the latest post on
 their first successful poll and relay subsequent posts. Changing the destination
 affects new alerts. TrackerBot still checks existing alerts in their original channels
 every 12 hours for edits or removals and retries failed translations after 15 minutes.

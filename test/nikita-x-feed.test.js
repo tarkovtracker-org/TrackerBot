@@ -44,6 +44,7 @@ async function fixture(t) {
   const messages = new Map();
   const calls = [];
   const endpointHolds = new Map();
+  const failures = new Map();
   let currentTime = time + 1000;
   let nextMessage = 100000000000000003n;
   function makeChannel(id, messages) {
@@ -119,7 +120,7 @@ async function fixture(t) {
   };
 
   const feed = {
-    config, env, channel, alternate, operations, calls, messages, alternateMessages, destinationsFile,
+    config, env, channel, alternate, operations, calls, messages, alternateMessages, destinationsFile, failures,
     get time() { return currentTime; },
     timeline: () => ({ meta: { result_count: 0 } }),
     lookup: () => assert.fail("Unexpected X post lookup"),
@@ -129,7 +130,7 @@ async function fixture(t) {
     write: state => writeFile(config.stateFile, JSON.stringify({ version: 2, guilds: { [guildId]: state } })),
     async poll() {
       await pollNikitaXFeed(client, config, {
-        endpointHolds,
+        endpointHolds, failures,
         now: () => currentTime,
         async fetchImpl(url, options) {
           calls.push({ url, options });
@@ -251,6 +252,90 @@ test("Discord subscriptions share one timeline poll and retry failed deliveries 
     [nonce(missed.id, otherChannelId), nonce(next.id, otherChannelId)]);
   assert.equal((await feed.read()).sinceId, next.id);
   assert.equal((await feed.read(otherGuildId)).sinceId, next.id);
+});
+
+test("a backed-off guild leaves the regular cursor alone and catches up after the healthy poll", async t => {
+  const feed = await fixture(t);
+  delete feed.config.channelId;
+  feed.alternate.guildId = otherGuildId;
+  await updateDestination(guildId, "nikita", channelId, () => {});
+  await updateDestination(otherGuildId, "nikita", otherChannelId, () => {});
+  await feed.seed();
+
+  feed.alternate.noHistory = true;
+  feed.timeline = () => ({ data: [post(2)] });
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  feed.failures.get(`${otherGuildId}:timeline`).retryAt = feed.time + 120_000;
+
+  const cursors = [];
+  feed.timeline = params => {
+    cursors.push(params.get("since_id"));
+    return { data: [post(2), post(3)] };
+  };
+  await feed.poll();
+  assert.deepEqual(cursors, [xId(2)]);
+  assert.equal((await feed.read(otherGuildId)).sinceId, xId(1));
+  assert.equal((await feed.read()).sinceId, xId(3));
+
+  feed.advance(120_000);
+  feed.alternate.noHistory = false;
+  cursors.length = 0;
+  feed.timeline = params => {
+    cursors.push(params.get("since_id"));
+    return { data: [post(2), post(3), post(4)] };
+  };
+  await feed.poll();
+  assert.deepEqual(cursors, [xId(3), xId(1)]);
+  assert.deepEqual(feed.operations.slice(-4).map(operation => operation.channelId),
+    [channelId, otherChannelId, otherChannelId, otherChannelId]);
+  assert.equal((await feed.read(otherGuildId)).sinceId, xId(4));
+});
+
+test("an invalid host default reports an error while Discord subscriptions continue", async t => {
+  const feed = await fixture(t);
+  feed.channel.guildId = undefined;
+  feed.channel.type = ChannelType.DM;
+  feed.alternate.guildId = otherGuildId;
+  await updateDestination(otherGuildId, "nikita", otherChannelId, () => {});
+  feed.timeline = () => ({ data: [post(1)] });
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  feed.timeline = () => ({ data: [post(2)] });
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [otherChannelId]);
+});
+
+test("a failed or backed-off migration cannot seed over the legacy host cursor", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const legacy = await feed.read();
+  delete legacy.guildId;
+  await writeFile(feed.config.stateFile, JSON.stringify(legacy));
+  const requestCount = feed.calls.length;
+  feed.timeline = () => ({ data: [post(2)] });
+  const rename = fs.rename;
+  let failMigration = true;
+  t.mock.method(fs, "rename", async (from, to) => {
+    if (to === feed.config.stateFile && failMigration) {
+      failMigration = false;
+      throw Object.assign(new Error("Synthetic migration write failure"), { code: "EIO" });
+    }
+    await rename(from, to);
+  });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(feed.poll(), { code: "EIO" });
+    feed.failures.get("migration").retryAt = feed.time + 120_000;
+    await feed.poll();
+    assert.equal(feed.calls.length, requestCount);
+    assert.deepEqual(JSON.parse(await readFile(feed.config.stateFile, "utf8")), legacy);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  feed.advance(120_000);
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [channelId]);
+  assert.equal((await feed.read()).sinceId, xId(2));
 });
 
 test("late and resumed subscriptions skip backfill while existing alerts remain tracked", async t => {
