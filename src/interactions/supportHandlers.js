@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
-import { isSupportConfigured, loadSupportContext, loadSupportTicket, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketOverwrites, ticketTopic } from "../config/support.js";
+import { loadSupportContext, loadSupportTicket, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketOverwrites, ticketTopic } from "../config/support.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
-import { getPreviousTicketParent, withDestinationReadLock } from "../config/destinations.js";
+import { getPreviousTicketParent, isSupportActive, withDestinationReadLock } from "../config/destinations.js";
 import { noMentions } from "../utils/messageReply.js";
 
 const operations = new Set();
@@ -17,7 +17,7 @@ export function ticketControls() {
 export async function handleSupportInteraction(interaction) {
   const lifecycleCommand = interaction.isChatInputCommand?.() && interaction.commandName === "ticket";
   const actionId = lifecycleCommand ? `support:${interaction.options.getSubcommand()}:v1` : interaction.customId;
-  const legacy = interaction.customId === "create_ticket" && isSupportConfigured(interaction.guildId);
+  const legacy = interaction.customId === "create_ticket" && isSupportActive(interaction.guildId);
   const menu = interaction.isStringSelectMenu?.() && interaction.customId === supportMenuId;
   const button = interaction.isButton?.() && (legacy || [
     "support:close:v1", "support:reopen:v1"
@@ -29,6 +29,10 @@ export async function handleSupportInteraction(interaction) {
   let ownsLock = false;
   let mutationStarted = false;
   try {
+    if ((menu || actionId.startsWith("support:open:")) && !isSupportActive(interaction.guildId)) {
+      await interaction.editReply({ content: "The help desk is awaiting staff activation. Contact server staff for support." });
+      return true;
+    }
     if (actionId.startsWith("support:open:")) {
       const type = actionId.split(":")[2];
       key = `${interaction.guildId}:${interaction.user.id}:${type}`;

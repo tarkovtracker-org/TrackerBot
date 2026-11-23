@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { ChannelType, OverwriteType, PermissionFlagsBits } from "discord.js";
-import { getDestinationId, getPreference, getPreviousTicketParent } from "./destinations.js";
+import { ChannelType, OverwriteType, PermissionFlagsBits, PermissionsBitField } from "discord.js";
+import { destinations, getDestinationId, getDestinationOverride, getPreference, getPreviousTicketParent,
+  initializeSupportActivations } from "./destinations.js";
 import { supportLinks } from "./preferences.js";
 
 export const supportMenuId = "support:route:v1";
@@ -18,6 +19,7 @@ export const conversationAccess = [
   PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks
 ];
 export const ticketBotAccess = [...conversationAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
+const supportDestinationKeys = Object.keys(destinations).filter(key => key.startsWith("support-"));
 
 export class SupportConfigurationError extends Error {}
 
@@ -34,11 +36,24 @@ function supportDestinationId(guildId, key, name) {
   return value;
 }
 
-export function isSupportConfigured(guildId) {
-  return Object.values(supportTicketTypes).some(({ prefix }) => Boolean(process.env[`${prefix}_STAFF_ROLE_IDS`]?.trim()))
-    || Object.keys(supportLinks).some(key => Boolean(getPreference(guildId, key)))
-    || [...Object.keys(supportProducts), ...Object.keys(supportTicketTypes)]
-      .some(key => Boolean(getDestinationId(guildId, `support-${key}`)));
+export function migrateSupportActivations(guilds) {
+  return initializeSupportActivations(() => [...guilds].filter(guild => {
+    // A managed ticket is evidence of previous use even if the configuration has since broken.
+    if (guild.channels.cache.some(channel => {
+      const ticket = channel.type === ChannelType.GuildText && parseTicketTopic(channel.topic);
+      if (!ticket || !channel.parentId) return false;
+      const key = `support-${ticket.type}`;
+      return channel.parentId === getDestinationId(guild.id, key)
+        || channel.parentId === getPreviousTicketParent(guild.id, key, channel.id);
+    })) return true;
+
+    // Host defaults are shared, so require evidence that the configuration belongs to this server.
+    const complete = supportDestinationKeys.every(key => getDestinationId(guild.id, key))
+      && Object.values(supportTicketTypes).every(({ prefix }) => process.env[`${prefix}_STAFF_ROLE_IDS`]?.trim())
+      && Object.keys(supportLinks).every(key => getPreference(guild.id, key));
+    return complete && supportDestinationKeys.some(key => getDestinationOverride(guild.id, key)
+      || guild.channels.cache.has(getDestinationId(guild.id, key)));
+  }).map(guild => guild.id));
 }
 
 function contactUrl(guildId, key) {
@@ -62,38 +77,71 @@ function validateStaffRoles(guildId, roles, ticket) {
   }
 }
 
-export function getSupportConfig(guildId) {
-  const products = Object.fromEntries(Object.entries(supportProducts).map(([key, value]) =>
-    [key, { ...value, channelId: supportDestinationId(guildId, key, value.env) }]
-  ));
-  const tickets = Object.fromEntries(Object.entries(supportTicketTypes).map(([key, value]) => {
-    return [key, { ...value, categoryId: supportDestinationId(guildId, key, `${value.prefix}_CATEGORY_ID`), roleIds: staffRoleIds(value.prefix) }];
-  }));
-  if (tickets.account.categoryId === tickets.moderation.categoryId ||
-      tickets.account.roleIds.some(roleId => tickets.moderation.roleIds.includes(roleId))) {
-    throw new SupportConfigurationError("Account and moderation support need separate categories and non-overlapping staff roles.");
+function collectProblem(problems, read) {
+  try {
+    return read();
+  } catch (error) {
+    if (!(error instanceof SupportConfigurationError)) throw error;
+    problems.push(error.message);
   }
-  return { products, tickets, contactUrl: contactUrl(guildId, "contact"), escalationUrl: contactUrl(guildId, "escalation") };
+}
+
+function readSupportConfig(guildId) {
+  const problems = [];
+  const read = callback => collectProblem(problems, callback);
+  const products = Object.fromEntries(Object.entries(supportProducts).map(([key, value]) =>
+    [key, { ...value, channelId: read(() => supportDestinationId(guildId, key, value.env)) }]
+  ));
+  const tickets = Object.fromEntries(Object.entries(supportTicketTypes).map(([key, value]) =>
+    [key, { ...value, categoryId: read(() => supportDestinationId(guildId, key, `${value.prefix}_CATEGORY_ID`)),
+      roleIds: read(() => staffRoleIds(value.prefix)) ?? [] }]
+  ));
+  if (tickets.account.categoryId && tickets.account.categoryId === tickets.moderation.categoryId) {
+    problems.push("Account and moderation support need separate categories.");
+  }
+  if (tickets.account.roleIds.some(roleId => tickets.moderation.roleIds.includes(roleId))) {
+    problems.push("Account and moderation support need non-overlapping staff roles.");
+  }
+  const config = { products, tickets, contactUrl: read(() => contactUrl(guildId, "contact")),
+    escalationUrl: read(() => contactUrl(guildId, "escalation")) };
+  return { config, problems };
+}
+
+export function getSupportConfig(guildId) {
+  const { config, problems } = readSupportConfig(guildId);
+  if (problems.length) throw new SupportConfigurationError(problems.join("\n"));
+  return config;
+}
+
+function checkSupportDestination(problems, guild, channel, type, bot, required, env, label) {
+  if (channel?.type !== type || channel.guildId !== guild.id) {
+    problems.push(`${label} (${env}): choose a ${type === ChannelType.GuildCategory ? "category" : "text channel"} in this server.`);
+    return;
+  }
+  const permissions = channel.permissionsFor(bot);
+  const missing = new PermissionsBitField(required.filter(permission => !permissions?.has(permission)));
+  if (missing.bitfield) {
+    const names = missing.toArray().map(name => name.replace(/([a-z])([A-Z])/g, "$1 $2"));
+    problems.push(`${label} (${env}): give TrackerBot ${names.join(", ")} in <#${channel.id}>.`);
+  }
 }
 
 export async function loadSupportContext(guild) {
-  const config = getSupportConfig(guild.id);
+  const { config, problems } = readSupportConfig(guild.id);
   const [channels, roles, bot] = await Promise.all([guild.channels.fetch(), guild.roles.fetch(), guild.members.fetchMe({ force: true })]);
   for (const product of Object.values(config.products)) {
-    const channel = channels.get(product.channelId);
-    if (channel?.type !== ChannelType.GuildText || channel.guildId !== guild.id ||
-        !channel.permissionsFor(bot)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory])) {
-      throw new SupportConfigurationError(`The ${product.env} destination is missing, is not a server text channel, or is inaccessible to the bot.`);
-    }
+    if (!product.channelId) continue;
+    checkSupportDestination(problems, guild, channels.get(product.channelId), ChannelType.GuildText, bot,
+      [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], product.env, product.label);
   }
   for (const ticket of Object.values(config.tickets)) {
-    const category = channels.get(ticket.categoryId);
-    if (category?.type !== ChannelType.GuildCategory || category.guildId !== guild.id ||
-        !category.permissionsFor(bot)?.has(ticketBotAccess)) {
-      throw new SupportConfigurationError(`The ${ticket.prefix}_CATEGORY_ID destination is missing or lacks the bot's required permissions.`);
+    if (ticket.categoryId) {
+      checkSupportDestination(problems, guild, channels.get(ticket.categoryId), ChannelType.GuildCategory, bot,
+        ticketBotAccess, `${ticket.prefix}_CATEGORY_ID`, ticket.label);
     }
-    validateStaffRoles(guild.id, roles, ticket);
+    collectProblem(problems, () => validateStaffRoles(guild.id, roles, ticket));
   }
+  if (problems.length) throw new SupportConfigurationError(problems.map(problem => `• ${problem}`).join("\n"));
   return { config, channels, roles, bot };
 }
 

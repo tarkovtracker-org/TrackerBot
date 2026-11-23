@@ -30,6 +30,7 @@ test("one modern catalog replaces numbered FAQs, stale status notices and one-of
   assert.deepEqual(edit.options[1].choices.map(choice => choice.value), ["set", "reset"]);
   assert.deepEqual(commands.find(command => command.name === "tt").options.map(option => option.name), ["url", "resources", "help"]);
   assert.deepEqual(commands.find(command => command.name === "channel").options.map(option => option.name), ["purge", "archive"]);
+  assert.deepEqual(commands.find(command => command.name === "support").options.map(option => option.name), ["check", "activate", "panel"]);
 });
 
 test("commands are guild-installed/guild-only with restrictive administrative defaults", async t => {
