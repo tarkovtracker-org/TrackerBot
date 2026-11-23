@@ -1,6 +1,7 @@
 import {
   SlashCommandBuilder, Routes, REST, InteractionContextType, ApplicationIntegrationType
 } from "discord.js";
+import { addConfigOptions } from "./configCommand.js";
 
 function command(name, description, admin = false) {
   const builder = new SlashCommandBuilder()
@@ -21,6 +22,7 @@ function shareOptions(builder) {
 }
 
 const slashCommands = [
+  addConfigOptions(command("config", "Manage TrackerBot settings for this server")),
   command("tt", "Share TarkovTracker links and discover useful commands")
     .addSubcommand(sub => shareOptions(sub.setName("url").setDescription("Share the TarkovTracker website")))
     .addSubcommand(sub => shareOptions(sub.setName("resources").setDescription("Share maintained guides and community tools")))

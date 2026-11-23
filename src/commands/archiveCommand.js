@@ -2,6 +2,13 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags
 import { adminRoles, hasAdminRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { noMentions } from "../utils/messageReply.js";
+import { getAffectedBotFeatures, getDestinationId, withDestinationReadLock } from "../config/destinations.js";
+
+function archiveCategory(guildId, channels) {
+  const id = getDestinationId(guildId, "archive");
+  return id ? channels.get(id) : channels.find(channel =>
+    channel?.type === ChannelType.GuildCategory && channel.name.trim().toLowerCase() === "archive");
+}
 
 export async function executeArchive(interaction) {
   if (!hasAdminRole(interaction.member.roles.cache)) {
@@ -16,21 +23,21 @@ export async function executeArchive(interaction) {
   try {
     const guild = interaction.guild;
     const channels = await guild.channels.fetch();
-    const categoryId = process.env.ARCHIVE_CATEGORY_ID?.trim();
-    const category = categoryId ? channels.get(categoryId) : channels.find(channel =>
-      channel?.type === ChannelType.GuildCategory && channel.name.trim().toLowerCase() === "archive"
-    );
+    const category = archiveCategory(guild.id, channels);
     if (category?.type !== ChannelType.GuildCategory) {
-      console.warn("Archive category unavailable", { categoryId: categoryId || "legacy Archive category" });
+      console.warn("Archive category unavailable", { categoryId: getDestinationId(guild.id, "archive") || "legacy Archive category" });
       await interaction.editReply({ content: "Staff must configure a valid archive category in this server. Nothing changed." });
       return;
     }
     const confirmId = `archive_channel:${interaction.id}`;
     const cancelId = `cancel_archive:${interaction.id}`;
+    const affectedFeatures = getAffectedBotFeatures(interaction.channelId, guild.id);
+    const warning = affectedFeatures.length
+      ? `\n\n⚠️ TrackerBot uses this channel for ${affectedFeatures.join(", ")}. Archiving it can interrupt access or delivery.` : "";
     const preview = await interaction.editReply({
       embeds: [createCardEmbed({
         title: "Archive for staff review?",
-        description: "This will move the channel and **replace its permission overwrites** so only configured admin roles and the bot can view it. Discord administrators always retain access.\n\nHistory is kept; nothing is deleted. Existing private thread memberships are not revoked. Record original permissions before archiving if you may need to restore them. The bot does not save previous overwrites. Audit logs are only a limited aid, not a permission backup."
+        description: "This will move the channel and **replace its permission overwrites** so only configured admin roles and the bot can view it. Discord administrators always retain access.\n\nHistory is kept; nothing is deleted. Existing private thread memberships are not revoked. Record original permissions before archiving if you may need to restore them. The bot does not save previous overwrites. Audit logs are only a limited aid, not a permission backup." + warning
       })],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(confirmId).setLabel("Archive privately").setStyle(ButtonStyle.Danger),
@@ -47,39 +54,45 @@ export async function executeArchive(interaction) {
       await interaction.editReply({ content: "Archive cancelled. Nothing changed.", embeds: [], components: [] });
       return;
     }
-    const member = await guild.members.fetch({ user: interaction.user.id, force: true });
-    if (!hasAdminRole(member.roles.cache)) {
-      await interaction.editReply({ content: "Your admin access has changed. Nothing changed.", embeds: [], components: [] });
-      return;
-    }
-    const roles = await guild.roles.fetch();
-    if (!adminRoles.size || [...adminRoles].some(id => id === guild.id || !roles.has(id))) {
-      throw Object.assign(new Error("Configured archive admin roles are invalid in this guild"), { code: "ARCHIVE_ADMIN_ROLES_INVALID" });
-    }
-    const bot = await guild.members.fetchMe();
-    const channel = await guild.channels.fetch(interaction.channelId, { force: true });
-    if (channel?.type !== ChannelType.GuildText) {
-      throw Object.assign(new Error("Archive source is no longer a text channel"), { code: "ARCHIVE_SOURCE_INVALID" });
-    }
-    const staffAccess = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
-    const botAccess = [...staffAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
-    if (!channel.permissionsFor(bot)?.has(botAccess)) {
-      await interaction.editReply({
-        content: "The bot needs View Channel, Send Messages, Read Message History, Manage Channels and Manage Roles here. Nothing changed; ask a server administrator to review its permissions.",
-        embeds: [], components: []
+    const abortReason = await withDestinationReadLock(guild.id, async () => {
+      const roles = await guild.roles.fetch();
+      if (!adminRoles.size || [...adminRoles].some(id => id === guild.id || !roles.has(id))) {
+        throw Object.assign(new Error("Configured archive admin roles are invalid in this guild"), { code: "ARCHIVE_ADMIN_ROLES_INVALID" });
+      }
+      const bot = await guild.members.fetchMe();
+      const channel = await guild.channels.fetch(interaction.channelId, { force: true });
+      if (channel?.type !== ChannelType.GuildText) {
+        throw Object.assign(new Error("Archive source is no longer a text channel"), { code: "ARCHIVE_SOURCE_INVALID" });
+      }
+      const staffAccess = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
+      const botAccess = [...staffAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
+      if (!channel.permissionsFor(bot)?.has(botAccess)) {
+        return "The bot needs View Channel, Send Messages, Read Message History, Manage Channels and Manage Roles here. Nothing changed; ask a server administrator to review its permissions.";
+      }
+      const current = archiveCategory(guild.id, await guild.channels.fetch());
+      if (current?.type !== ChannelType.GuildCategory || current.id !== category.id) {
+        return "The archive destination changed. Open a new preview.";
+      }
+      const member = await guild.members.fetch({ user: interaction.user.id, force: true });
+      if (!hasAdminRole(member.roles.cache)) return "Your admin access has changed. Nothing changed.";
+      if (JSON.stringify(getAffectedBotFeatures(channel.id, guild.id)) !== JSON.stringify(affectedFeatures)) {
+        return "The bot destinations for this channel changed. Open a new preview.";
+      }
+      // One atomic channel edit: never inherit a public category's overwrites.
+      await channel.edit({
+        parent: current.id,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: bot.id, allow: botAccess },
+          ...[...adminRoles].map(id => ({ id, allow: staffAccess }))
+        ],
+        reason: `Private audit archive requested by ${interaction.user.id}`
       });
+    });
+    if (abortReason) {
+      await interaction.editReply({ content: abortReason, embeds: [], components: [] });
       return;
     }
-    // One atomic channel edit: never inherit a public category's overwrites.
-    await channel.edit({
-      parent: category.id,
-      permissionOverwrites: [
-        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: bot.id, allow: botAccess },
-        ...[...adminRoles].map(id => ({ id, allow: staffAccess }))
-      ],
-      reason: `Private audit archive requested by ${interaction.user.id}`
-    });
     await interaction.editReply({ content: "Channel archived for staff review. History was retained; no messages were deleted.", embeds: [], components: [] }).catch(err => {
       console.warn("Archive applied but confirmation notice failed", { code: err.code ?? "unknown" });
     });

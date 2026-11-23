@@ -2,6 +2,7 @@
 node_modules/
 dist/
 .env
+/.trackerbot-data/
 npm-debug.log
 yarn-error.log
 
