@@ -238,7 +238,7 @@ test("activation rechecks both administrator permissions and the configured role
 test("upgrade only preserves complete settings for their server or a recognized managed ticket", async () => {
   const existing = fixture().guild;
   const partial = fixture({ action: "close" });
-  const unrelated = { id: ids.other, channels: { cache: new Collection() } };
+  const unrelated = { ...existing, id: ids.other, channels: { cache: new Collection() } };
   await initializeDestinations(`${settingsFile}.host`);
   await migrateSupportActivations([existing, unrelated]);
   assert.equal(isSupportActive(ids.guild), true);
@@ -252,6 +252,47 @@ test("upgrade only preserves complete settings for their server or a recognized 
   await initializeDestinations(`${settingsFile}.new`);
   await migrateSupportActivations([existing]);
   assert.equal(isSupportActive(ids.guild), false);
+});
+
+test("upgrade keeps complete but unusable settings in setup when no managed ticket exists", async () => {
+  const f = fixture();
+  await initializeDestinations(`${settingsFile}.invalid`);
+  process.env.SUPPORT_CONTACT_URL = "http://example.com";
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActive(ids.guild), false, "invalid link must block automatic activation");
+
+  await initializeDestinations(`${settingsFile}.no-permissions`);
+  process.env.SUPPORT_CONTACT_URL = settings.SUPPORT_CONTACT_URL;
+  f.channels.get(ids.account).permissionsFor = () => ({ has: () => false });
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActive(ids.guild), false, "missing permissions must block automatic activation");
+});
+
+test("a draft help desk rejects both its menu and old confirmation buttons", async () => {
+  const interactions = [fixture({ value: "account" }), fixture({ action: "open", value: "account" })];
+  await initializeDestinations(`${settingsFile}.draft`);
+  await migrateSupportActivations([]);
+  for (const f of interactions) {
+    assert.equal(await handleSupportInteraction(f.interaction), true);
+    assert.match(last(f), /awaiting staff activation/);
+    assert.equal(f.created.length, 0);
+  }
+});
+
+test("Discord interactions receive a private retry response while settings are starting", async () => {
+  const f = fixture({ value: "account" });
+  f.interaction.isRepliable = () => true;
+  f.interaction.reply = async payload => f.replies.push(payload);
+  let handle;
+  let ready = false;
+  registerInteractionHandler({ on: (_event, callback) => { handle = callback; } }, () => ready);
+  await handle(f.interaction);
+  assert.match(last(f), /starting/);
+  assert.equal(f.replies.at(-1).flags, MessageFlags.Ephemeral);
+  assert.deepEqual(f.events, []);
+  ready = true;
+  await handle(f.interaction);
+  assert.match(last(f), new RegExp(ids.accountRole));
 });
 
 for (const value of ["tracker", "scanner", "monitor"]) {

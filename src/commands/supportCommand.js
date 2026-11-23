@@ -83,9 +83,10 @@ export async function executeSupport(interaction) {
           if (!(error instanceof SupportConfigurationError)) throw error;
           return `${active ? "Help desk is active." : "Help desk is in setup. The old ticket button still uses the legacy route."}\n\nFix these setup blockers:\n${error.message}`;
         }
-        return `Support configuration checks passed. ${active
+        const next = active
           ? "The help desk is active. Use /support panel to publish or update the panel."
-          : "Ready to activate. A Discord administrator with the TrackerBot admin role can run /support activate."}`;
+          : "Ready to activate. A Discord administrator with the TrackerBot admin role can run /support activate.";
+        return `Support configuration checks passed. ${next}\n\nUse the documented live smoke tests to verify member access, contact responsiveness, and deployment behavior.`;
       });
       await interaction.editReply({ content, allowedMentions: noMentions });
       return;

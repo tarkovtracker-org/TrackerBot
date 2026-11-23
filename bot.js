@@ -14,6 +14,16 @@ ensureEnvVars();
 await initializeDestinations();
 
 const client = createClient();
+let settingsReady = false;
+
+async function stopClient() {
+  process.exitCode = 1;
+  try {
+    await client.destroy();
+  } catch (err) {
+    console.warn("Bot cleanup failed", { code: err?.code ?? "unknown" });
+  }
+}
 
 client.on(Events.Error, err => {
   // Discord errors can contain request payloads; log only the diagnostic code.
@@ -27,13 +37,10 @@ client.once(Events.ClientReady, async () => {
     await migrateSupportActivations(client.guilds.cache.values());
   } catch (err) {
     console.error("Could not initialize help-desk activation", { code: err?.code ?? "unknown" });
-    process.exitCode = 1;
-    await client.destroy().catch(cleanupError => {
-      console.warn("Bot cleanup failed", { code: cleanupError?.code ?? "unknown" });
-    });
+    await stopClient();
     return;
   }
-  registerInteractionHandler(client);
+  settingsReady = true;
 
   try {
     await registerSlashCommands(client);
@@ -43,6 +50,7 @@ client.once(Events.ClientReady, async () => {
   }
 });
 
+registerInteractionHandler(client, () => settingsReady);
 registerMemberHandlers(client);
 setupHoneypot(client);
 setupNikitaXFeed(client);
@@ -51,10 +59,5 @@ try {
   await client.login(process.env.DISCORD_TOKEN);
 } catch (err) {
   console.error("Bot login failed", { code: err?.code ?? "unknown" });
-  try {
-    await client.destroy();
-  } catch (cleanupError) {
-    console.warn("Bot cleanup failed", { code: cleanupError?.code ?? "unknown" });
-  }
-  process.exitCode = 1;
+  await stopClient();
 }

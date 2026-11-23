@@ -81,11 +81,12 @@ private ticket, not in the public help channel or a public GitHub issue.
    links. Publishing a new panel is deliberate; rerunning without `message_id`
    creates another panel. The bot never scans history or republishes on restart.
 
-During the first startup after upgrade, TrackerBot records existing activation for
-servers with complete settings linked to that server or a recognized managed
-ticket. Check `/support check` after upgrading, especially if the server was
-unavailable during startup or an existing setup was already incomplete. Keep the
-Discord settings directory on the same persistent volume for future deployments.
+On the first startup after upgrade, TrackerBot activates an existing setup if
+its settings pass validation against Discord's startup data. A recognized managed
+ticket also preserves activation, even when the setup needs repair. Run
+`/support check` after upgrading to confirm the server's status, especially if the
+server was unavailable or its setup was incomplete. Keep the Discord settings
+directory on the same persistent volume for future deployments.
 
 The live dropdown uses five fixed routes: Tracker, RatScanner, Monitor, account
 support, and harassment/unwanted DMs. Product responses are private-to-user links,
@@ -180,14 +181,13 @@ Do not declare live production verification complete without this evidence.
 ## Rollback
 
 Before activation, save the old ticket-entry message references and review
-outstanding tickets. To suspend an active help desk, retire its interactive entry
+outstanding tickets. To retire the public entry points, remove their interactive
 messages, including the old ticket button, and point members to permanent contact
-links. Retain the saved activation and queue staff settings so existing tickets
-can still be managed. If configuration breaks after activation, new ticket
+links. Keep the help desk configured, including activation, destinations, links,
+and queue staff roles, so existing tickets can still be managed. After activation, new ticket
 requests fail closed until the required settings and permissions are restored.
 If destinations change, refresh the panel with `/support panel message_id:<id>`
 before directing members to it.
-Removing the new staff settings also removes their notification-button exclusion,
-so review configured notification-role IDs/names before rollback. Do not re-enable
-legacy entry unless its `TICKET_CATEGORY_ID`/`TICKET_STAFF_ROLE_IDS` audience is
-appropriate. Repository tests neither deploy the bot nor perform these writes.
+Before a binary rollback that restores legacy routing, verify the intended
+`TICKET_CATEGORY_ID` and `TICKET_STAFF_ROLE_IDS` audience. If staff roles are
+removed from the host settings, review notification-role assignments as well.

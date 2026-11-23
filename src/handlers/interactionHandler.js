@@ -3,7 +3,7 @@ import { handleChatInputCommand } from "../interactions/slashHandlers.js";
 import { handleButtonInteraction } from "../interactions/buttonHandlers.js";
 import { handleSupportInteraction } from "../interactions/supportHandlers.js";
 
-export function registerInteractionHandler(client) {
+export function registerInteractionHandler(client, isReady = () => true) {
   client.on(Events.InteractionCreate, async interaction => {
     try {
       // Slash commands and buttons require a guild context —
@@ -14,6 +14,13 @@ export function registerInteractionHandler(client) {
             content: "This command can only be used in the server.",
             flags: MessageFlags.Ephemeral
           });
+        }
+        return;
+      }
+
+      if (!isReady()) {
+        if (interaction.isRepliable()) {
+          await interaction.reply({ content: "TrackerBot is starting. Try again in a moment.", flags: MessageFlags.Ephemeral });
         }
         return;
       }

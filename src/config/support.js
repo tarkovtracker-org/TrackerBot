@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { ChannelType, OverwriteType, PermissionFlagsBits, PermissionsBitField } from "discord.js";
-import { destinations, getDestinationId, getDestinationOverride, getPreference, getPreviousTicketParent,
+import { getDestinationId, getPreference, getPreviousTicketParent,
   initializeSupportActivations } from "./destinations.js";
 import { supportLinks } from "./preferences.js";
 
@@ -19,7 +19,6 @@ export const conversationAccess = [
   PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks
 ];
 export const ticketBotAccess = [...conversationAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
-const supportDestinationKeys = Object.keys(destinations).filter(key => key.startsWith("support-"));
 
 export class SupportConfigurationError extends Error {}
 
@@ -47,12 +46,11 @@ export function migrateSupportActivations(guilds) {
         || channel.parentId === getPreviousTicketParent(guild.id, key, channel.id);
     })) return true;
 
-    // Host defaults are shared, so require evidence that the configuration belongs to this server.
-    const complete = supportDestinationKeys.every(key => getDestinationId(guild.id, key))
-      && Object.values(supportTicketTypes).every(({ prefix }) => process.env[`${prefix}_STAFF_ROLE_IDS`]?.trim())
-      && Object.keys(supportLinks).every(key => getPreference(guild.id, key));
-    return complete && supportDestinationKeys.some(key => getDestinationOverride(guild.id, key)
-      || guild.channels.cache.has(getDestinationId(guild.id, key)));
+    const { config, problems } = readSupportConfig(guild.id);
+    const bot = guild.members.me;
+    if (problems.length || !bot) return false;
+    checkSupportResources(problems, config, guild, guild.channels.cache, guild.roles.cache, bot);
+    return problems.length === 0;
   }).map(guild => guild.id));
 }
 
@@ -126,9 +124,7 @@ function checkSupportDestination(problems, guild, channel, type, bot, required, 
   }
 }
 
-export async function loadSupportContext(guild) {
-  const { config, problems } = readSupportConfig(guild.id);
-  const [channels, roles, bot] = await Promise.all([guild.channels.fetch(), guild.roles.fetch(), guild.members.fetchMe({ force: true })]);
+function checkSupportResources(problems, config, guild, channels, roles, bot) {
   for (const product of Object.values(config.products)) {
     if (!product.channelId) continue;
     checkSupportDestination(problems, guild, channels.get(product.channelId), ChannelType.GuildText, bot,
@@ -141,6 +137,12 @@ export async function loadSupportContext(guild) {
     }
     collectProblem(problems, () => validateStaffRoles(guild.id, roles, ticket));
   }
+}
+
+export async function loadSupportContext(guild) {
+  const { config, problems } = readSupportConfig(guild.id);
+  const [channels, roles, bot] = await Promise.all([guild.channels.fetch(), guild.roles.fetch(), guild.members.fetchMe({ force: true })]);
+  checkSupportResources(problems, config, guild, channels, roles, bot);
   if (problems.length) throw new SupportConfigurationError(problems.map(problem => `• ${problem}`).join("\n"));
   return { config, channels, roles, bot };
 }

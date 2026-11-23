@@ -304,6 +304,9 @@ blocks new tickets until setup is repaired. Activation persists in the Discord
 settings file across restarts. Existing ticket permissions are preserved. Use a
 single bot instance, including during deployments.
 
+On upgrade, servers with a valid existing setup or a recognized managed ticket
+start active. Use `/support check` after upgrading to confirm the server's status.
+
 See [help-desk setup, privacy, smoke tests, and rollback](docs/SUPPORT.md).
 
 ## Ticket placement
@@ -362,7 +365,7 @@ reorganize the server or alter existing category permissions.
 | `/tt url [private] [reply_to]` | Share the website with a clean embed and link button. |
 | `/tt resources [private] [reply_to]` | Share maintained website guides and community tools. |
 | `/tt help` | Private command guide, available to every member. |
-| `/support check` | Private help-desk status, setup blockers, and next action. |
+| `/support check` | Admin-only private help-desk status, setup blockers, and next action. |
 | `/support activate` | Recheck setup and switch the old ticket button to the help desk. Requires Discord Administrator and a configured TrackerBot admin role. |
 | `/support panel [message_id]` | Admin-only preview to publish/update a help-desk panel in this channel. |
 | `/ticket close` / `/ticket reopen` | Retain a managed ticket's history; reopening requires membership in its configured queue staff roles. |
