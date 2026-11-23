@@ -24,7 +24,7 @@ export function addConfigOptions(command) {
         .addChoices(...[...settingSections].map(([value, { label, settings }]) =>
           ({ name: `${label} · ${settings[value].label}`, value }))))
       .addStringOption(input => input.setName("action").setDescription("Save a value or restore its default").setRequired(true)
-        .addChoices({ name: "Set", value: "set" }, { name: "Reset to default", value: "reset" }))
+        .addChoices({ name: "Set", value: "set" }, { name: "Reset (pauses the Nikita feed)", value: "reset" }))
       .addChannelOption(input => input.setName("channel").setDescription("New channel or category for a destination")
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildCategory))
       .addRoleOption(input => input.setName("role").setDescription("New role for a notification button"))

@@ -242,35 +242,33 @@ and quotes. Plain reposts are skipped. Alerts show the original text, available 
 and video previews, X publish time, and a link. An English machine translation is
 shown alongside the original when available. Long text is included as a text attachment.
 
-Set the X token, state file, translator URL, and either a guild ID or a channel ID
-on one bot instance:
+Set the X token, state file, and translator URL on one bot instance. Discord server
+admins can opt in with `/config edit setting:nikita action:set` and choose a text or
+announcement channel. Give TrackerBot View Channel, Send Messages, Embed Links,
+Attach Files, and Read Message History there. Use `action:reset` to pause new alerts.
 
-- `NIKITA_X_CHANNEL_ID` is the destination channel. Give the bot View Channel, Send Messages,
-  Embed Links, Attach Files, and Read Message History.
-- `NIKITA_X_GUILD_ID` is the server allowed to manage the feed through
-  `/config edit setting:nikita action:set`. Guild-only setup uses the default
-  settings file or the existing path override.
-  In the server, the Discord setting takes precedence over the host's channel ID. Leaving both channel settings
-  empty pauses new delivery. X and translator credentials stay on the host.
 - `NIKITA_X_BEARER_TOKEN` is an X app-only token with User Lookup, User Posts timeline,
   and Post Lookup access.
 - `NIKITA_X_STATE_FILE` is an absolute file path under an existing writable, persistent
   directory. The file tracks post and Discord message IDs across restarts. Run one
-  feed instance at a time, including during deploys, and preserve this file.
-  With a guild ID configured, a channel change affects new alerts. The bot keeps
-  checking existing alerts in their original channels.
-  Keep access to those channels for edits and removals.
+  feed instance at a time, including during deploys, and preserve this file and the
+  Discord destination settings. TrackerBot upgrades single-server feed state in place.
 - `NIKITA_X_TRANSLATE_URL` is the HTTPS `/translate` URL for your LibreTranslate-compatible
   service. Post text is sent there for translation when needed. Set
   `NIKITA_X_TRANSLATE_API_KEY` if the service requires a key.
+- Existing deployments can keep `NIKITA_X_CHANNEL_ID` as the default for the server
+  that owns it and `NIKITA_X_GUILD_ID` as an optional explicit binding for that channel.
+  Discord settings override this default, including an explicit pause.
 
-The first successful poll records the latest post as a starting point. Subsequent polls
-resume from that point. Failed translations get retried after 15 minutes. The feed also
-rechecks previously relayed posts every 12 hours to apply edits and removals. These
-lookups use [X API read credits](https://docs.x.com/x-api/getting-started/pricing) as
-the tracked history grows. Check the app's credit and spending limits before enabling.
-If the host has no default channel, reset the Discord destination to stop new alerts
-while keeping rechecks active. When the feed is disabled entirely, a moderator with
+TrackerBot shares one timeline poll across subscribed servers and tracks their delivery
+progress independently. New and resumed subscriptions start at the latest post on
+their first successful poll and relay subsequent posts. Changing the destination
+affects new alerts. TrackerBot still checks existing alerts in their original channels
+every 12 hours for edits or removals and retries failed translations after 15 minutes.
+Keep access to those channels for rechecks. Lookups use
+[X API read credits](https://docs.x.com/x-api/getting-started/pricing) as the tracked
+history grows. Check the app's credit and spending limits before enabling.
+When the feed is disabled entirely, a moderator with
 Manage Messages can locate the alert by its X link and delete it in Discord.
 Handle removal requests from X or the account owner within
 24 hours. See the [X Developer Policy](https://docs.x.com/developer-terms/policy#public-display-of-posts).

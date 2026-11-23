@@ -1,6 +1,6 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits as Permission } from "discord.js";
 import {
-  destinations, getDestinationId, getDestinationOverride,
+  destinations, getDestinationId, getDestinationOverride, getHostDestinationId,
   getPreviousTickets, ticketDestinationKeys, updateDestination, withDestinationReadLock
 } from "../config/destinations.js";
 import { getNikitaXFeedConfig } from "../config/env.js";
@@ -35,11 +35,17 @@ export async function editDestination(interaction, key, id, confirmed) {
       const member = await guild.members.fetch({ user: interaction.user.id, force: true });
       if (!member.permissions.has(Permission.Administrator)) throw new DestinationError("Your server administrator access changed.");
 
-      if (key === "nikita" && getNikitaXFeedConfig()?.guildId !== guild.id) {
-        throw new DestinationError("The bot host must enable the Nikita feed for this server first.");
+      if (key === "nikita" && id) {
+        let feed;
+        try {
+          feed = getNikitaXFeedConfig();
+        } catch {
+          // The startup handler logs host-side configuration errors.
+        }
+        if (!feed) throw new DestinationError("The Nikita feed is unavailable on this bot instance.");
       }
-      const configured = Object.fromEntries(Object.entries(destinations).map(([name, { env }]) =>
-        [name, settings[name] ?? process.env[env]?.trim()]));
+      const configured = Object.fromEntries(Object.keys(destinations).map(name =>
+        [name, settings[name] === undefined ? getHostDestinationId(guild.id, name) : settings[name]]));
       if (configured.honeypot && Object.entries(configured).some(([name, value]) => name !== "honeypot" && value === configured.honeypot)) {
         throw new DestinationError("Use a dedicated channel for the honeypot. It cannot share another bot destination.");
       }
@@ -113,7 +119,8 @@ export async function editDestination(interaction, key, id, confirmed) {
       }).map(channel => channel.id);
       return { categoryId: previous.id, ticketIds, liveChannelIds };
     });
-    let content = id ? `${label} now uses <#${id}>.` : restoredChannel ? `${label} now uses the host default <#${restoredChannel}>.`
+    let content = id ? `${label} now uses <#${id}>.` : key === "nikita" ? `${label} paused for this server.`
+      : restoredChannel ? `${label} now uses the host default <#${restoredChannel}>.`
       : `${label} reset. ${unavailableDefault ? "The host default is unavailable in this server." : "No host default is set."}`;
     if (previousHoneypot && previousHoneypot !== (id ?? restoredChannel)) {
       try {
