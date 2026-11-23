@@ -1,7 +1,8 @@
 import { Events } from "discord.js";
 import { getRequiredEnv } from "../config/env.js";
+import { getDestinationId } from "../config/destinations.js";
 
-// In-memory map of member ID -> welcome message ID.
+// In-memory map of guild and member to the original welcome channel and message IDs.
 // Limitation: on bot restart this map is empty, so welcome messages for
 // members who joined before the restart cannot be deleted when they leave.
 // Acceptable at this scale; persist to a store if orphaned messages become
@@ -63,7 +64,7 @@ async function assignJoinRoles(member) {
 }
 
 async function sendWelcomeMessage(member) {
-  const channelId = getRequiredEnv("WELCOME_CHANNEL_ID");
+  const channelId = getDestinationId(member.guild.id, "welcome");
   const channel = member.guild.channels.cache.get(channelId);
   if (!channel?.isTextBased()) return;
 
@@ -72,23 +73,22 @@ async function sendWelcomeMessage(member) {
     allowedMentions: { parse: [], users: [member.id] }
   });
 
-  welcomeMessages.set(member.id, message.id);
+  welcomeMessages.set(`${member.guild.id}:${member.id}`, { channelId, messageId: message.id });
 }
 
 async function cleanupWelcomeMessage(member) {
-  const channelId = getRequiredEnv("WELCOME_CHANNEL_ID");
-  const channel = member.guild.channels.cache.get(channelId);
-  if (!channel?.isTextBased()) return;
-
-  const messageId = welcomeMessages.get(member.id);
-  if (!messageId) return;
+  const key = `${member.guild.id}:${member.id}`;
+  const entry = welcomeMessages.get(key);
+  if (!entry) return;
 
   try {
-    const message = await channel.messages.fetch(messageId);
+    const channel = member.guild.channels.cache.get(entry.channelId);
+    if (!channel?.isTextBased()) return;
+    const message = await channel.messages.fetch(entry.messageId);
     await message.delete();
   } catch (err) {
-    console.error("Failed to delete welcome message:", err);
+    console.error("Failed to delete welcome message", { code: err?.code ?? "unknown" });
   } finally {
-    welcomeMessages.delete(member.id);
+    if (welcomeMessages.get(key) === entry) welcomeMessages.delete(key);
   }
 }

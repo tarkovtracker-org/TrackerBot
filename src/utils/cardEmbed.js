@@ -6,12 +6,13 @@ export function createCardEmbed({
   title,
   description,
   color = defaultColor,
+  timestamp = new Date(),
   footer,
   fields
 } = {}) {
   const embed = new EmbedBuilder()
     .setColor(color)
-    .setTimestamp(new Date());
+    .setTimestamp(timestamp);
 
   if (title) embed.setTitle(title);
   if (description) embed.setDescription(description);
