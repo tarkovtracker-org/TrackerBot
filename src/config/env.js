@@ -47,12 +47,13 @@ function canonicalStatePath(file, useDefaultDirectory = false) {
 export function getNikitaXFeedConfig(env = process.env) {
   const channelId = env.NIKITA_X_CHANNEL_ID?.trim();
   const guildId = env.NIKITA_X_GUILD_ID?.trim();
-  if (!channelId && !guildId) return null;
-
   const bearerToken = env.NIKITA_X_BEARER_TOKEN?.trim();
   const stateFile = env.NIKITA_X_STATE_FILE?.trim();
+  const translator = env.NIKITA_X_TRANSLATE_URL?.trim();
+  if (!channelId && !guildId && !(bearerToken && stateFile && translator)) return null;
+
   const destinationsFile = getConfigPath(env);
-  const translateUrl = URL.parse(env.NIKITA_X_TRANSLATE_URL?.trim() ?? "");
+  const translateUrl = URL.parse(translator ?? "");
   if ((channelId && !/^\d{17,20}$/.test(channelId)) || (guildId && !/^\d{17,20}$/.test(guildId))
       || !bearerToken || !stateFile || !isAbsolute(stateFile)
       || translateUrl?.protocol !== "https:" || translateUrl.username || translateUrl.password

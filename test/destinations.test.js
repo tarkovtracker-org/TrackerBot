@@ -188,15 +188,26 @@ test("reset uses the host fallback and account and moderation keep their histori
   assert.equal(getPreviousTicketParent(guildId, "support-account", existing.id), account.id);
 });
 
-test("simultaneous writes retain both changes and X settings stay in the host-enabled server", async t => {
+test("a Discord admin can subscribe without a host guild allowlist and reset stops delivery", async t => {
   const bot = await fixture(t);
   const welcome = bot.addChannel(asId(1));
-  const help = bot.addChannel(asId(2));
+  const feed = bot.addChannel(asId(2));
   process.env.NIKITA_X_GUILD_ID = otherGuild;
-  assert.match(await bot.run("set", "nikita", welcome), /enable the Nikita feed for this server/);
-  await Promise.all([bot.run("set", "welcome", welcome), bot.run("set", "support-tracker", help)]);
+  assert.match(await bot.run("set", "nikita", feed, { admin: false }), /Only Discord/);
+  const [, result] = await Promise.all([bot.run("set", "welcome", welcome), bot.run("set", "nikita", feed)]);
+  assert.match(result, /now uses/);
   const saved = JSON.parse(await readFile(bot.path, "utf8"));
-  assert.deepEqual(saved.guilds[guildId], { welcome: welcome.id, "support-tracker": help.id });
+  assert.deepEqual(saved.guilds[guildId], { welcome: welcome.id, nikita: feed.id });
+  await initializeDestinations(bot.path);
+  assert.equal(getDestinationOverride(guildId, "welcome"), welcome.id);
+  assert.equal(getDestinationOverride(guildId, "nikita"), feed.id);
+  assert.equal(getDestinationOverride(otherGuild, "nikita"), undefined);
+
+  process.env.NIKITA_X_GUILD_ID = guildId;
+  process.env.NIKITA_X_CHANNEL_ID = feed.id;
+  assert.match(await bot.run("reset", "nikita"), /paused/);
+  await initializeDestinations(bot.path);
+  assert.equal(getDestinationId(guildId, "nikita"), undefined);
 });
 
 test("ticket category moves prune deleted history and preserve surviving historical tickets", async t => {

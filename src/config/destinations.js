@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { ChannelType, PermissionFlagsBits as Permission } from "discord.js";
@@ -31,6 +32,7 @@ export const destinations = Object.freeze({
 });
 
 export const isDiscordId = value => typeof value === "string" && /^\d{17,20}$/.test(value);
+export const isSubscriptionId = value => typeof value === "string" && /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/.test(value);
 export const ticketDestinationKeys = new Set(["tickets", "support-account", "support-moderation"]);
 
 let file;
@@ -38,6 +40,7 @@ let settings = {};
 let previousTickets = {};
 let honeypotActivations = {};
 let guildPreferences = {};
+let nikitaSubscriptions = {};
 let writes = Promise.resolve();
 const guildOperations = new Map();
 
@@ -76,6 +79,7 @@ export async function initializeDestinations(path) {
     previousTickets = {};
     honeypotActivations = {};
     guildPreferences = {};
+    nikitaSubscriptions = {};
     return;
   }
   if (!isAbsolute(path)) throw new Error("TRACKERBOT_DESTINATIONS_FILE must be absolute.");
@@ -95,6 +99,12 @@ export async function initializeDestinations(path) {
     const history = parsed.previousTickets ?? {};
     const activations = parsed.honeypotActivations ?? {};
     const savedPreferences = parsed.preferences ?? {};
+    const subscriptions = parsed.nikitaSubscriptions ?? {};
+    if (typeof subscriptions !== "object" || Array.isArray(subscriptions) ||
+      !Object.entries(subscriptions).every(([guild, id]) => isDiscordId(guild)
+        && (parsed.guilds[guild]?.nikita ? isSubscriptionId(id) : id === null))) {
+      throw new Error("The Nikita subscriptions in the Discord settings file are invalid.");
+    }
     if (!isGuildMap(savedPreferences, (key, value) =>
       Object.hasOwn(preferences, key) && preferences[key].parse(value) === value)) {
       throw new Error("The Discord preferences in the settings file are invalid.");
@@ -120,18 +130,37 @@ export async function initializeDestinations(path) {
     previousTickets = history;
     honeypotActivations = activations;
     guildPreferences = savedPreferences;
+    nikitaSubscriptions = subscriptions;
   } else {
     settings = {};
     previousTickets = {};
     honeypotActivations = {};
     guildPreferences = {};
+    nikitaSubscriptions = {};
   }
   file = path;
 }
 
 export const canConfigureDestinations = () => Boolean(file);
+export function getNikitaSubscription(guildId) {
+  const channelId = settings[guildId]?.nikita;
+  const subscriptionId = nikitaSubscriptions[guildId];
+  if (channelId) return { channelId, subscriptionId };
+  return subscriptionId === null ? null : undefined;
+}
+export const getNikitaGuildIds = () => Object.keys(settings).filter(id => settings[id].nikita);
 export const getDestinationOverride = (guildId, key) => settings[guildId]?.[key];
-export const getDestinationId = (guildId, key) => getDestinationOverride(guildId, key) ?? process.env[destinations[key].env]?.trim();
+export function getHostDestinationId(guildId, key) {
+  if (key === "nikita") {
+    const legacyGuild = process.env.NIKITA_X_GUILD_ID?.trim();
+    if (legacyGuild && legacyGuild !== guildId) return undefined;
+  }
+  return process.env[destinations[key].env]?.trim();
+}
+export function getDestinationId(guildId, key) {
+  if (key === "nikita" && nikitaSubscriptions[guildId] === null) return undefined;
+  return getDestinationOverride(guildId, key) ?? getHostDestinationId(guildId, key);
+}
 export const getPreference = (guildId, key) => guildPreferences[guildId]?.[key] ?? process.env[preferences[key].env]?.trim();
 export function getAffectedBotFeatures(channelId, guildId) {
   return Object.entries(destinations).filter(([key]) => getDestinationId(guildId, key) === channelId)
@@ -166,13 +195,15 @@ function withGuildSetting(map, guildId, entries) {
 function queueWrite(buildState) {
   let replaced = false;
   const update = writes.then(async () => {
-    const next = buildState({ version: 1, guilds: settings, previousTickets, honeypotActivations, preferences: guildPreferences });
+    const next = buildState({ version: 1, guilds: settings, previousTickets, honeypotActivations,
+      preferences: guildPreferences, nikitaSubscriptions });
     await writeJsonAtomically(file, next, () => {
       replaced = true;
       settings = next.guilds;
       previousTickets = next.previousTickets;
       honeypotActivations = next.honeypotActivations;
       guildPreferences = next.preferences;
+      nikitaSubscriptions = next.nikitaSubscriptions;
     });
     return true;
   }).catch(error => {
@@ -207,14 +238,23 @@ export function updateDestination(guildId, key, channelId, validate) {
   }
   return withDestinationLock(guildId, async () => {
     const next = { ...settings[guildId] };
+    const previousNikita = getNikitaSubscription(guildId);
     if (channelId === null) delete next[key];
     else next[key] = channelId;
     let rollback;
     try {
-      const previous = await validate(next, undo => { rollback = undo; });
+      const paused = key === "nikita" ? channelId === null : previousNikita === null;
+      const proposed = paused ? { ...next, nikita: null } : next;
+      const previous = await validate(proposed, undo => { rollback = undo; });
       return await queueWrite(state => {
         const history = { ...state.previousTickets };
         const activations = { ...state.honeypotActivations };
+        const subscriptions = { ...state.nikitaSubscriptions };
+        if (key === "nikita") {
+          // A missing delivery state seeds on its first poll. Only resuming after a pause needs a new ID.
+          if (paused) subscriptions[guildId] = null;
+          else if (previousNikita === null) subscriptions[guildId] = randomUUID();
+        }
         if (key === "honeypot") {
           const activeId = previous?.honeypotChannelId;
           if (!activeId) delete activations[guildId];
@@ -233,7 +273,7 @@ export function updateDestination(guildId, key, channelId, validate) {
           else delete history[guildId];
         }
         return { ...state, guilds: withGuildSetting(state.guilds, guildId, next),
-          previousTickets: history, honeypotActivations: activations };
+          previousTickets: history, honeypotActivations: activations, nikitaSubscriptions: subscriptions };
       });
     } catch (error) {
       if (rollback) {

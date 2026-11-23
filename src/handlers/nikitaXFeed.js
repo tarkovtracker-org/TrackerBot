@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { ChannelType, EmbedBuilder, Events, PermissionFlagsBits, escapeMarkdown } from "discord.js";
 import { getNikitaXFeedConfig } from "../config/env.js";
-import { getDestinationOverride, withDestinationReadLock } from "../config/destinations.js";
+import { getNikitaGuildIds, getNikitaSubscription, isDiscordId, withDestinationReadLock } from "../config/destinations.js";
 import { comparePostIds, createNikitaXApi, isPostId, nikitaHandle } from "../services/nikitaXApi.js";
-import { loadNikitaXState, saveNikitaXState } from "../services/nikitaXState.js";
+import { openNikitaXState } from "../services/nikitaXState.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { noMentions } from "../utils/messageReply.js";
 
@@ -163,15 +163,138 @@ async function retainPreviews(channel, post, messageId) {
   }
 }
 
-export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now = Date.now, runPhase, endpointHolds = new Map() } = {}) {
+export async function pollNikitaXFeed(client, config, {
+  fetchImpl = fetch, now = Date.now, runPhase, endpointHolds = new Map(), failures = new Map()
+} = {}) {
+  const store = await openNikitaXState(config.stateFile);
   const x = createNikitaXApi(config.bearerToken, fetchImpl, now, endpointHolds);
-  const load = () => loadNikitaXState(config.stateFile, config.channelId, config.guildId);
-  const save = state => saveNikitaXState(config.stateFile, { ...state, guildId: config.guildId });
-  const activeChannelId = () => (config.guildId && getDestinationOverride(config.guildId, "nikita")) || config.channelId;
+  const errors = [];
+  const phase = runPhase ?? (async (scope, run) => {
+    if (failures.get(scope)?.retryAt > now()) return;
+    try {
+      await run();
+      failures.delete(scope);
+    } catch (error) {
+      failures.set(scope, { retryAt: now() });
+      errors.push(error);
+    }
+  });
+
+  const channelOwners = new Map();
+  function findGuild(channelId) {
+    if (!channelOwners.has(channelId)) {
+      channelOwners.set(channelId, client.channels.fetch(channelId, { force: false }).then(channel =>
+        isDiscordId(channel?.guildId) && [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)
+          ? channel.guildId : null, error => {
+        if (error?.code === 10003) return null;
+        if (!channelInaccessible(error)) throw error;
+      }));
+    }
+    return channelOwners.get(channelId);
+  }
+
+  let defaultGuild = config.guildId;
+  if (config.channelId && !defaultGuild) {
+    await phase("host-default", async () => {
+      defaultGuild = await findGuild(config.channelId);
+      if (!defaultGuild) throw channelError();
+    });
+  }
+  const old = store.legacy;
+  let legacyGuild = old?.guildId;
+  if (old && !store.guildIds().includes(old.guildId)) {
+    await phase("migration", async () => {
+      legacyGuild ??= await findGuild(old.channelId);
+      if (legacyGuild) await store.migrate(legacyGuild);
+      else if (legacyGuild === undefined && defaultGuild) throw channelError();
+    });
+  }
+  // An unresolved legacy cursor takes precedence over auto-seeding a possible replacement default.
+  const remainingLegacy = store.legacy;
+  const trackedGuilds = store.guildIds();
+  const unclaimed = remainingLegacy && !trackedGuilds.includes(remainingLegacy.guildId);
+  const deferDefault = unclaimed && !trackedGuilds.includes(defaultGuild) && legacyGuild !== null
+    && (legacyGuild === undefined || legacyGuild === defaultGuild);
+
+  function subscription(guildId) {
+    const saved = getNikitaSubscription(guildId);
+    if (saved !== undefined) return saved;
+    if (config.channelId && guildId === defaultGuild && !deferDefault) return { channelId: config.channelId };
+    return null;
+  }
+
+  const guilds = new Set([...trackedGuilds, ...getNikitaGuildIds()]);
+  if (defaultGuild && config.channelId) guilds.add(defaultGuild);
+  const entries = [...guilds].map(guildId => ({ guildId, saved: store.load(guildId), selected: subscription(guildId) }));
+  const existingUserId = entries.find(({ saved }) => saved)?.saved.userId;
+  let userRequest;
+  function sharedTimeline(group) {
+    const cursors = group.filter(({ saved, selected }) =>
+      saved && selected && saved.subscriptionId === selected.subscriptionId).map(({ saved }) => saved.sinceId);
+    const checkpoints = cursors.filter(Boolean).sort(comparePostIds);
+    const oldest = cursors.includes(null) ? null : checkpoints[0] ?? null;
+    let request;
+    return {
+      covers: cursor => request && cursors.length > 0 && (oldest === null || cursor && comparePostIds(cursor, oldest) >= 0),
+      read() {
+        return request ??= (async () => {
+          const userId = await (userRequest ??= existingUserId ?? x.resolveUserId());
+          const posts = await x.timeline(userId, oldest, { seed: cursors.length === 0 });
+          const head = [posts.at(-1)?.id, checkpoints.at(-1)].filter(Boolean).sort(comparePostIds).at(-1);
+          return { userId, posts, sinceId: head ?? null };
+        })();
+      }
+    };
+  }
+
+  const regular = [];
+  const retrying = [];
+  const retryReady = new Set();
+  const time = now();
+  for (const entry of entries) {
+    const failure = failures.get(`${entry.guildId}:timeline`);
+    (failure ? retrying : regular).push(entry);
+    if (failure?.retryAt <= time) retryReady.add(entry.guildId);
+  }
+  const regularTimeline = sharedTimeline(regular);
+  const retryTimeline = sharedTimeline(retrying.filter(({ guildId }) => retryReady.has(guildId)));
+  function deliver({ guildId, selected }, timeline, allowTimeline = true) {
+    return pollDestination(client, config, {
+      guildId, x, timeline, fetchImpl, now,
+      phase: (scope, run) => {
+        if (scope !== "timeline" || allowTimeline) return phase(`${guildId}:${scope}`, run);
+      },
+      load: () => store.load(guildId), save: state => store.save(guildId, state),
+      subscriptionId: selected?.subscriptionId,
+      activeChannelId() {
+        const current = subscription(guildId);
+        if (selected && current && current.subscriptionId === selected.subscriptionId) return current.channelId;
+      }
+    });
+  }
+  const deliveries = regular.map(entry => deliver(entry, regularTimeline.read));
+  const retired = store.legacy;
+  if (retired && trackedGuilds.includes(retired.guildId)) {
+    deliveries.push(pollDestination(client, config, {
+      guildId: retired.guildId, phase: (scope, run) => phase(`legacy:${scope}`, run), x, fetchImpl, now,
+      load: () => store.legacy, save: state => store.saveLegacy(state),
+      subscriptionId: retired.subscriptionId, activeChannelId: () => undefined
+    }));
+  }
+  await Promise.all(deliveries);
+  // Read catch-up pages only after regular delivery. A failed retry never widens the regular request.
+  await Promise.all(retrying.map(entry => deliver(entry, cursor =>
+    (regularTimeline.covers(cursor) ? regularTimeline : retryTimeline).read(), retryReady.has(entry.guildId))));
+  if (errors.length) throw errors[0];
+}
+
+async function pollDestination(client, config, {
+  guildId, phase, x, timeline, fetchImpl, now, load, save, subscriptionId, activeChannelId
+}) {
   const channels = new Map();
   function getChannel(id, verifyHistory = false) {
-    if (verifyHistory) return getDestination(client, id, { verifyHistory, guildId: config.guildId });
-    if (!channels.has(id)) channels.set(id, getDestination(client, id, { guildId: config.guildId }));
+    if (verifyHistory) return getDestination(client, id, { verifyHistory, guildId });
+    if (!channels.has(id)) channels.set(id, getDestination(client, id, { guildId }));
     return channels.get(id);
   }
   async function getReceiptChannel(id) {
@@ -182,15 +305,6 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
       throw error;
     }
   }
-  const errors = [];
-  const phase = runPhase ?? (async (_, run) => {
-    try {
-      await run();
-    } catch (error) {
-      errors.push(error);
-    }
-  });
-
   async function publish(channel, post, existing) {
     const messageId = existing?.id;
     requirePublishingPermissions(channel, client.user, !messageId);
@@ -219,9 +333,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
       }
       return await syncMessage(channel, messageId, { ...payload, attachments }) ? { messageId, ...receipt } : null;
     }
-    const nonce = config.guildId
-      ? createHash("sha256").update(`${channel.id}:${post.sourceId}`).digest("base64url").slice(0, 25)
-      : post.sourceId;
+    const nonce = createHash("sha256").update(`${channel.id}:${post.sourceId}`).digest("base64url").slice(0, 25);
     const message = await channel.send({ ...payload, nonce, enforceNonce: true });
     return { messageId: message.id, ...receipt };
   }
@@ -304,6 +416,8 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
       const { channel, existing } = await findRecoveryTarget(state, pending);
       // A deleted foreground destination leaves the post in the timeline for redelivery.
       if (!channel && !deferred) return await finish(false);
+      if (pending.receiptOnly && !existing) return await finish();
+      if (!existing && state.subscriptionId !== subscriptionId) return;
       const post = await lookupPost(versionId, sourceId);
       if (existing) {
         if (post && !post.skip) {
@@ -317,10 +431,10 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
           return await finish();
         }
       }
-      if (!post || post.skip) return await finish();
-      await withDestinationReadLock(config.guildId, async () => {
+      if (!post || post.skip || pending.receiptOnly) return await finish();
+      await withDestinationReadLock(guildId, async () => {
         const currentId = activeChannelId();
-        if (!currentId) return;
+        if (!currentId || state.subscriptionId !== subscriptionId) return;
         const target = await getChannel(currentId);
         requirePublishingPermissions(target, client.user, true);
         if (currentId !== channelId) {
@@ -340,22 +454,29 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
   }
 
   async function deliver(state) {
-    if (!state) {
+    if (!state || activeChannelId() && state.subscriptionId !== subscriptionId) {
       const channelId = activeChannelId();
       if (!channelId) return;
       await getChannel(channelId);
-      const userId = await x.resolveUserId();
-      const posts = await x.timeline(userId, null, { seed: true });
-      await save({ version: 1, channelId, userId, sinceId: posts.at(-1)?.id ?? null, pending: null, published: {} });
+      const head = await timeline();
+      if (!activeChannelId()) return;
+      const base = state ?? { version: 1, channelId, userId: head.userId, published: {} };
+      const recoveries = { ...base.recoveries };
+      if (base.pending) recoveries[base.pending.sourceId] = { ...base.pending,
+        channelId: base.pending.channelId ?? base.channelId };
+      for (const item of Object.values(recoveries)) item.receiptOnly = true;
+      const sinceId = [head.sinceId, base.sinceId].filter(Boolean).sort(comparePostIds).at(-1) ?? null;
+      await save({ ...base, subscriptionId, sinceId, pending: null, recoveries });
       return;
     }
 
     if (state.pending) await recoverPending(state, state.pending);
 
     if (!activeChannelId()) return;
-    const timeline = await x.timeline(state.userId, state.sinceId);
-    const returnedIds = new Set(timeline.map(post => post.id));
-    for (const version of timeline) {
+    const { posts } = await timeline(state.sinceId);
+    const returnedIds = new Set(posts.map(post => post.id));
+    for (const version of posts) {
+      if (state.sinceId && comparePostIds(version.id, state.sinceId) <= 0) continue;
       let post = version;
       if (version.id !== version.latestId) {
         if (returnedIds.has(version.latestId)) continue;
@@ -374,7 +495,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
       } else if (deferred) {
         if (post && comparePostIds(post.id, deferred.versionId) > 0) deferred.versionId = post.id;
       } else if (!known && post && !post.skip) {
-        const delivered = await withDestinationReadLock(config.guildId, async () => {
+        const delivered = await withDestinationReadLock(guildId, async () => {
           const channelId = activeChannelId();
           if (!channelId) return false;
           const channel = await getChannel(channelId);
@@ -396,7 +517,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
   }
 
   async function recoverDeferred() {
-    const state = await load();
+    const state = load();
     let firstError;
     for (const pending of Object.values(state?.recoveries ?? {})) {
       try {
@@ -410,7 +531,7 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
 
   async function review() {
     // Read the last durable state even if delivery was interrupted mid-send.
-    const state = await load();
+    const state = load();
     if (!state) return;
     const time = now();
     const targets = Object.entries(state.published).filter(([, record]) =>
@@ -439,13 +560,12 @@ export async function pollNikitaXFeed(client, config, { fetchImpl = fetch, now =
     if (firstError) throw firstError;
   }
 
-  const state = await load();
+  const state = load();
   await phase("timeline", () => deliver(state));
   if (state) {
     await phase("recovery", recoverDeferred);
     await phase("review", review);
   }
-  if (errors.length) throw errors[0];
 }
 
 export function setupNikitaXFeed(client) {
@@ -482,7 +602,7 @@ export function setupNikitaXFeed(client) {
   async function tick() {
     try {
       if (client.isReady()) {
-        await pollNikitaXFeed(client, config, { runPhase, endpointHolds });
+        await pollNikitaXFeed(client, config, { runPhase, endpointHolds, failures });
       }
     } catch (error) {
       logError("startup", error);

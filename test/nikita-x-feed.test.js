@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs, { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -15,6 +16,8 @@ const userId = "100000000000000002";
 const botId = "100000000000000003";
 const otherChannelId = "100000000000000099";
 const guildId = "100000000000000088";
+const otherGuildId = "100000000000000089";
+const nonce = (id, channel = channelId) => createHash("sha256").update(`${channel}:${id}`).digest("base64url").slice(0, 25);
 const xId = offset => ((BigInt(time + offset) - 1288834974657n) << 22n).toString();
 const image = "https://pbs.twimg.com/media/server.jpg";
 const extraImage = "https://pbs.twimg.com/media/rack.jpg";
@@ -25,6 +28,9 @@ function post(offset, values = {}) {
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), "trackerbot-nikita-"));
+  const destinationsFile = join(dir, "destinations.json");
+  await initializeDestinations(destinationsFile);
+  t.after(() => initializeDestinations(null));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const env = {
     NIKITA_X_CHANNEL_ID: channelId,
@@ -38,6 +44,7 @@ async function fixture(t) {
   const messages = new Map();
   const calls = [];
   const endpointHolds = new Map();
+  const failures = new Map();
   let currentTime = time + 1000;
   let nextMessage = 100000000000000003n;
   function makeChannel(id, messages) {
@@ -106,22 +113,24 @@ async function fixture(t) {
         assert.ok([channelId, otherChannelId].includes(id));
         assert.equal(typeof force, "boolean");
         if (id === channelId && channel.deleted) throw Object.assign(new Error("Unknown Channel"), { code: 10003 });
+        if (id === channelId && channel.inaccessible) throw Object.assign(new Error("Missing Access"), { code: 50001 });
         return id === channelId ? channel : alternate;
       }
     }
   };
 
   const feed = {
-    config, env, channel, alternate, operations, calls, messages, alternateMessages,
+    config, env, channel, alternate, operations, calls, messages, alternateMessages, destinationsFile, failures,
     get time() { return currentTime; },
     timeline: () => ({ meta: { result_count: 0 } }),
     lookup: () => assert.fail("Unexpected X post lookup"),
     translate: () => assert.fail("Unexpected translation"),
     advance: ms => { currentTime += ms; },
-    read: async () => JSON.parse(await readFile(config.stateFile, "utf8")),
+    read: async (id = guildId) => JSON.parse(await readFile(config.stateFile, "utf8")).guilds[id],
+    write: state => writeFile(config.stateFile, JSON.stringify({ version: 2, guilds: { [guildId]: state } })),
     async poll() {
       await pollNikitaXFeed(client, config, {
-        endpointHolds,
+        endpointHolds, failures,
         now: () => currentTime,
         async fetchImpl(url, options) {
           calls.push({ url, options });
@@ -173,6 +182,8 @@ async function fixture(t) {
 test("feed is opt-in and requires a complete configuration and trusted HTTPS translator", async t => {
   const { env, config } = await fixture(t);
   assert.equal(getNikitaXFeedConfig({ NIKITA_X_BEARER_TOKEN: "token" }), null);
+  const { NIKITA_X_CHANNEL_ID: _, ...shared } = env;
+  assert.equal(getNikitaXFeedConfig(shared).channelId, undefined);
   assert.equal(config.stateFile, env.NIKITA_X_STATE_FILE);
   for (const invalid of [
     { NIKITA_X_BEARER_TOKEN: "" }, { NIKITA_X_CHANNEL_ID: "invalid" },
@@ -207,6 +218,225 @@ test("feed state and Discord settings cannot alias the same file through a paren
   assert.equal(getNikitaXFeedConfig(env).stateFile, env.NIKITA_X_STATE_FILE);
 });
 
+test("Discord subscriptions share one timeline poll and retry failed deliveries independently", async t => {
+  const feed = await fixture(t);
+  delete feed.config.channelId;
+  feed.alternate.guildId = otherGuildId;
+  const subscribe = (guild, channel) => updateDestination(guild, "nikita", channel, () => {});
+  await feed.poll();
+  assert.deepEqual(feed.calls, []);
+
+  await Promise.all([subscribe(guildId, channelId), subscribe(otherGuildId, otherChannelId)]);
+  await feed.seed();
+  const timelineRequests = () => feed.calls.filter(({ url }) => url.pathname === `/2/users/${userId}/tweets`).length;
+  assert.equal(timelineRequests(), 1);
+
+  const missed = post(2);
+  feed.timeline = () => ({ data: [missed] });
+  feed.alternate.rejectSend = true;
+  await assert.rejects(feed.poll(), /Send was not accepted/);
+  assert.equal(timelineRequests(), 2);
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [channelId]);
+  assert.equal((await feed.read()).sinceId, missed.id);
+  assert.equal((await feed.read(otherGuildId)).sinceId, xId(1));
+
+  feed.alternate.rejectSend = false;
+  const next = post(3);
+  feed.lookup = () => ({ data: [missed] });
+  feed.timeline = () => ({ data: [next, missed] });
+  await feed.poll();
+  assert.equal(timelineRequests(), 3);
+  assert.deepEqual(feed.operations.filter(operation => operation.channelId === channelId).map(operation => operation.payload.nonce),
+    [nonce(missed.id), nonce(next.id)]);
+  assert.deepEqual(feed.operations.filter(operation => operation.channelId === otherChannelId).map(operation => operation.payload.nonce),
+    [nonce(missed.id, otherChannelId), nonce(next.id, otherChannelId)]);
+  assert.equal((await feed.read()).sinceId, next.id);
+  assert.equal((await feed.read(otherGuildId)).sinceId, next.id);
+});
+
+test("a backed-off guild leaves the regular cursor alone and catches up after the healthy poll", async t => {
+  const feed = await fixture(t);
+  delete feed.config.channelId;
+  feed.alternate.guildId = otherGuildId;
+  await updateDestination(guildId, "nikita", channelId, () => {});
+  await updateDestination(otherGuildId, "nikita", otherChannelId, () => {});
+  await feed.seed();
+
+  feed.alternate.noHistory = true;
+  feed.timeline = () => ({ data: [post(2)] });
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  feed.failures.get(`${otherGuildId}:timeline`).retryAt = feed.time + 120_000;
+
+  const cursors = [];
+  feed.timeline = params => {
+    cursors.push(params.get("since_id"));
+    return { data: [post(2), post(3)] };
+  };
+  await feed.poll();
+  assert.deepEqual(cursors, [xId(2)]);
+  assert.equal((await feed.read(otherGuildId)).sinceId, xId(1));
+  assert.equal((await feed.read()).sinceId, xId(3));
+
+  feed.advance(120_000);
+  feed.alternate.noHistory = false;
+  cursors.length = 0;
+  feed.timeline = params => {
+    cursors.push(params.get("since_id"));
+    return { data: [post(2), post(3), post(4)] };
+  };
+  await feed.poll();
+  assert.deepEqual(cursors, [xId(3), xId(1)]);
+  assert.deepEqual(feed.operations.slice(-4).map(operation => operation.channelId),
+    [channelId, otherChannelId, otherChannelId, otherChannelId]);
+  assert.equal((await feed.read(otherGuildId)).sinceId, xId(4));
+});
+
+test("an invalid host default reports an error while Discord subscriptions continue", async t => {
+  const feed = await fixture(t);
+  feed.channel.guildId = undefined;
+  feed.channel.type = ChannelType.DM;
+  feed.alternate.guildId = otherGuildId;
+  await updateDestination(otherGuildId, "nikita", otherChannelId, () => {});
+  feed.timeline = () => ({ data: [post(1)] });
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  feed.timeline = () => ({ data: [post(2)] });
+  await assert.rejects(feed.poll(), { code: "X_FEED_CHANNEL" });
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [otherChannelId]);
+});
+
+test("a failed or backed-off migration cannot seed over the legacy host cursor", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const legacy = await feed.read();
+  delete legacy.guildId;
+  await writeFile(feed.config.stateFile, JSON.stringify(legacy));
+  const requestCount = feed.calls.length;
+  feed.timeline = () => ({ data: [post(2)] });
+  const rename = fs.rename;
+  let failMigration = true;
+  t.mock.method(fs, "rename", async (from, to) => {
+    if (to === feed.config.stateFile && failMigration) {
+      failMigration = false;
+      throw Object.assign(new Error("Synthetic migration write failure"), { code: "EIO" });
+    }
+    await rename(from, to);
+  });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(feed.poll(), { code: "EIO" });
+    feed.failures.get("migration").retryAt = feed.time + 120_000;
+    await feed.poll();
+    assert.equal(feed.calls.length, requestCount);
+    assert.deepEqual(JSON.parse(await readFile(feed.config.stateFile, "utf8")), legacy);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  feed.advance(120_000);
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [channelId]);
+  assert.equal((await feed.read()).sinceId, xId(2));
+});
+
+test("late and resumed subscriptions skip backfill while existing alerts remain tracked", async t => {
+  const feed = await fixture(t);
+  delete feed.config.channelId;
+  feed.alternate.guildId = otherGuildId;
+  const subscribe = (guild, channel) => updateDestination(guild, "nikita", channel, () => {});
+  await subscribe(guildId, channelId);
+  await feed.seed();
+
+  const existing = post(2);
+  await subscribe(otherGuildId, otherChannelId);
+  feed.timeline = () => ({ data: [existing] });
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [channelId]);
+  assert.equal((await feed.read(otherGuildId)).sinceId, existing.id);
+
+  await subscribe(guildId, null);
+  const paused = post(3);
+  feed.timeline = () => ({ data: [paused] });
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [channelId, otherChannelId]);
+  assert.ok((await feed.read()).published[existing.id]);
+
+  await subscribe(guildId, channelId);
+  await initializeDestinations(feed.destinationsFile);
+  const seed = post(4);
+  feed.timeline = () => ({ data: [seed] });
+  await feed.poll();
+  assert.equal((await feed.read()).sinceId, seed.id);
+  assert.deepEqual(Object.keys((await feed.read()).published), [existing.id]);
+  assert.equal(feed.operations.at(-1).channelId, otherChannelId);
+
+  const later = post(5);
+  feed.timeline = () => ({ data: [later] });
+  await feed.poll();
+  assert.deepEqual(feed.operations.slice(-2).map(operation => operation.channelId).sort(), [channelId, otherChannelId]);
+});
+
+test("a failed resubscription seed cannot send a deferred alert from before the pause", async t => {
+  const feed = await fixture(t);
+  delete feed.config.channelId;
+  const setChannel = channel => updateDestination(guildId, "nikita", channel, () => {});
+  await setChannel(channelId);
+  await feed.seed();
+  const beforePause = post(2);
+  const state = await feed.read();
+  state.recoveries = { [beforePause.id]: { id: beforePause.id, sourceId: beforePause.id,
+    versionId: beforePause.id, channelId, startedAt: feed.time } };
+  await feed.write(state);
+  await setChannel(null);
+  await setChannel(otherChannelId);
+
+  feed.timeline = () => new Response(null, { status: 503 });
+  feed.lookup = () => ({ data: [beforePause] });
+  await assert.rejects(feed.poll(), { code: "X_HTTP_503" });
+  assert.deepEqual(feed.operations, []);
+  assert.ok((await feed.read()).recoveries[beforePause.id]);
+});
+
+test("moving a channel-only host default preserves the cursor without a configured guild ID", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  await updateDestination(guildId, "nikita", otherChannelId, () => {});
+  const newPost = post(2);
+  feed.timeline = () => ({ data: [newPost] });
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [otherChannelId]);
+  assert.equal((await feed.read()).sinceId, newPost.id);
+});
+
+test("a late legacy migration preserves both messages when a guild relayed a newer version of the same post", async t => {
+  const feed = await fixture(t);
+  await feed.seed();
+  const original = post(2);
+  feed.timeline = () => ({ data: [original] });
+  await feed.poll();
+  const legacy = await feed.read();
+  delete legacy.guildId;
+  await writeFile(feed.config.stateFile, JSON.stringify(legacy));
+
+  delete feed.config.channelId;
+  feed.channel.inaccessible = true;
+  await updateDestination(guildId, "nikita", otherChannelId, () => {});
+  feed.timeline = () => ({ data: [original] });
+  await feed.poll();
+  const revision = post(3, { edit_history_tweet_ids: [original.id, xId(3)] });
+  feed.timeline = () => ({ data: [revision] });
+  await feed.poll();
+  assert.deepEqual(feed.operations.map(operation => operation.channelId), [channelId, otherChannelId]);
+
+  feed.channel.inaccessible = false;
+  feed.advance(12 * 60 * 60_000);
+  feed.timeline = () => ({ meta: { result_count: 0 } });
+  feed.lookup = () => new Response(null, { status: 404 });
+  await feed.poll();
+  const sent = feed.operations.filter(operation => operation.type === "send").map(operation => operation.id);
+  const removed = feed.operations.filter(operation => operation.type === "delete").map(operation => operation.id);
+  assert.deepEqual(removed.sort(), sent.sort());
+});
+
 test("seeds without backfill, paginates oldest first and mirrors replies, quotes, images and translation", async t => {
   const feed = await fixture(t);
   await feed.seed();
@@ -239,7 +469,7 @@ test("seeds without backfill, paginates oldest first and mirrors replies, quotes
     return { translatedText: "Update today. #Tarkov", detectedLanguage: { language: "ru" } };
   };
   await feed.poll();
-  assert.deepEqual(feed.operations.map(({ type, payload }) => [type, payload.nonce]), [["send", reply.id], ["send", quote.id]]);
+  assert.deepEqual(feed.operations.map(({ type, payload }) => [type, payload.nonce]), [["send", nonce(reply.id)], ["send", nonce(quote.id)]]);
   const { payload } = feed.operations[0];
   const [rendered] = feed.messages.get(feed.operations[0].id).embeds;
   assert.match(rendered.description, /Обновление сегодня/);
@@ -393,9 +623,9 @@ test("invalid recovery records stop the feed before it changes delivery state", 
     const next = { ...state, recoveries: { [key]: {
       id: entry.id, sourceId: entry.id, versionId: entry.id, channelId: channel, startedAt: feed.time
     } } };
-    await writeFile(feed.config.stateFile, JSON.stringify(next));
+    await feed.write(next);
     await assert.rejects(feed.poll(), { code: "X_FEED_STATE" });
-    assert.equal(await readFile(feed.config.stateFile, "utf8"), JSON.stringify(next));
+    assert.deepEqual(await feed.read(), JSON.parse(JSON.stringify(next)));
   }
   assert.deepEqual(feed.operations, []);
 });
@@ -413,7 +643,7 @@ test("a failed later timeline page cannot skip unseen older posts", async t => {
     ? { data: [post(2)] }
     : { data: [post(3)], meta: { next_token: "next-page" } };
   await feed.poll();
-  assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [xId(2), xId(3)]);
+  assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [nonce(xId(2)), nonce(xId(3))]);
 });
 
 test("a failing lookup batch leaves later reviews independent and records only successful checks", async t => {
@@ -426,7 +656,7 @@ test("a failing lookup batch leaves later reviews independent and records only s
       mediaComplete: true, retryTranslationAt: 0, nextReviewAt: feed.time
     };
   }
-  await writeFile(feed.config.stateFile, JSON.stringify(state));
+  await feed.write(state);
   const batches = [];
   feed.lookup = ids => {
     batches.push(ids);
@@ -478,7 +708,7 @@ test("new delivery requires message history before reserving or sending an alert
 
   feed.channel.noHistory = false;
   await feed.poll();
-  assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [entry.id]);
+  assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [nonce(entry.id)]);
 });
 
 test("pending delivery and review share a lookup rate limit and a definite 404 clears pending", async t => {
@@ -492,7 +722,7 @@ test("pending delivery and review share a lookup rate limit and a definite 404 c
   feed.advance(12 * 60 * 60_000);
   const state = await feed.read();
   state.pending = { id: pending.id, versionId: pending.id, sourceId: pending.id, startedAt: feed.time };
-  await writeFile(feed.config.stateFile, JSON.stringify(state));
+  await feed.write(state);
   let lookups = 0;
   feed.lookup = () => {
     lookups++;
@@ -509,7 +739,7 @@ test("pending delivery and review share a lookup rate limit and a definite 404 c
   await feed.poll();
   assert.equal((await feed.read()).pending, null);
   assert.equal((await feed.read()).sinceId, xId(4));
-  assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [original.id, xId(4)]);
+  assert.deepEqual(feed.operations.map(operation => operation.payload.nonce), [nonce(original.id), nonce(xId(4))]);
 });
 
 test("a transient Windows sharing violation does not lose the delivery receipt", async t => {
@@ -591,6 +821,7 @@ test("switching the feed destination preserves old receipts and relays new posts
   feed.timeline = () => ({ data: [old] });
   await feed.poll();
   const legacy = await feed.read();
+  delete legacy.guildId;
   delete legacy.published[old.id].channelId;
   await writeFile(feed.config.stateFile, JSON.stringify(legacy));
 
@@ -642,10 +873,9 @@ test("a deleted pending destination cannot block delivery to the new channel", a
 
 test("a destination change during the X fetch reroutes the next delivery", async t => {
   const feed = await fixture(t);
-  const store = join(dirname(feed.config.stateFile), "destinations.json");
-  await initializeDestinations(store);
-  t.after(() => initializeDestinations(null));
   feed.config.guildId = guildId;
+  await writeFile(feed.destinationsFile, JSON.stringify({ version: 1, guilds: { [guildId]: { nikita: channelId } } }));
+  await initializeDestinations(feed.destinationsFile);
   await feed.seed();
   const entry = post(2);
   feed.timeline = async () => {
