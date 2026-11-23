@@ -2,12 +2,15 @@ import "dotenv/config";
 import { Events } from "discord.js";
 import { createClient } from "./src/client/createClient.js";
 import { ensureEnvVars } from "./src/config/env.js";
+import { initializeDestinations } from "./src/config/destinations.js";
 import { registerSlashCommands } from "./src/commands/registerSlashCommands.js";
 import { registerInteractionHandler } from "./src/handlers/interactionHandler.js";
 import { registerMemberHandlers } from "./src/handlers/memberHandlers.js";
 import { setupHoneypot } from "./src/handlers/honeypotHandler.js";
+import { setupNikitaXFeed } from "./src/handlers/nikitaXFeed.js";
 
 ensureEnvVars();
+await initializeDestinations();
 
 const client = createClient();
 
@@ -30,6 +33,7 @@ client.once(Events.ClientReady, async () => {
 registerInteractionHandler(client);
 registerMemberHandlers(client);
 setupHoneypot(client);
+setupNikitaXFeed(client);
 
 try {
   await client.login(process.env.DISCORD_TOKEN);

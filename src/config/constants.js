@@ -1,5 +1,6 @@
 import { PermissionFlagsBits } from "discord.js";
 import { supportTicketTypes } from "./support.js";
+import { getPreference } from "./destinations.js";
 
 // Optional resource-sharing allowlist. Empty means any member who can post;
 // it is independent of administrative authorization (ADMIN_ROLE_ID).
@@ -53,9 +54,9 @@ export function getSupportStaffRoleIds() {
   );
 }
 
-export function getNotificationRoleId(customId) {
+export function getNotificationRoleId(customId, guildId) {
   const name = reactionRoleNameMap[customId];
-  return name ? process.env[`REACTION_ROLE_${name.toUpperCase()}_ID`]?.trim() || undefined : undefined;
+  return name ? getPreference(guildId, name) || undefined : undefined;
 }
 
 // Dedicated notification roles may carry ordinary communication capabilities,

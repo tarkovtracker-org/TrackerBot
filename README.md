@@ -199,6 +199,82 @@ npm run start:web   # Public issue forms (http://localhost:3000)
 - Bot login success is logged as soon as Discord authenticates the token.
 - `webserver.js` serves `http://localhost:3000` (issue portal), plus `http://localhost:3000/issue` and `http://localhost:3000/data` (forms).
 
+## Discord settings
+
+Discord server administrators can use two commands:
+
+- `/config view` shows the selected section: destinations, support links, or notifications.
+- `/config edit` changes one setting. Choose a setting and select Set or Reset to default.
+  When setting a value, fill in the matching `channel`, `role`, or `url` field.
+  Leave those fields blank when resetting.
+
+Changes apply immediately and are isolated by server. Reset restores the
+environment default or built-in fallback.
+
+TrackerBot creates `.trackerbot-data` under its working directory at startup and
+saves settings in `discord-destinations.json`. Existing
+`TRACKERBOT_DESTINATIONS_FILE` overrides and stored destinations still work. An
+override must be an absolute file path in a writable directory that already exists.
+Keep credentials and ticket staff access settings in the deployment configuration.
+
+In Coolify, mount a writable volume at the settings **directory** inside the
+container, for example `/app/.trackerbot-data` if the process runs from `/app`.
+Reuse the same mount on each deployment. Use one bot process for the settings file,
+including during deploys. See the [Coolify storage guide](https://coolify.io/docs/applications/configuration/persistent-storage).
+
+| Destination | Where it routes |
+| --- | --- |
+| Welcome messages, honeypot, Nikita X feed | A server channel |
+| Public help for TarkovTracker, RatScanner, TarkovMonitor | One text channel per product |
+| Channel archives, legacy tickets, account tickets, moderation tickets | A category for each destination |
+
+Changing a ticket category routes new tickets there. Previously managed tickets
+can still be closed or reopened in their original category. The honeypot must use
+a dedicated channel. Set `confirm_honeypot` when choosing it, since posting there
+can trigger a ban. TrackerBot prepares the warning before switching and
+preserves messages from before activation when a server admin chooses the channel.
+
+## Nikita's X feed
+
+TrackerBot can relay public posts by [Nikita Buyanov (@nikgeneburn)](https://x.com/nikgeneburn)
+to a dedicated Discord text channel. It polls every two minutes and includes replies
+and quotes. Plain reposts are skipped. Alerts show the original text, available image
+and video previews, X publish time, and a link. An English machine translation is
+shown alongside the original when available. Long text is included as a text attachment.
+
+Set the X token, state file, translator URL, and either a guild ID or a channel ID
+on one bot instance:
+
+- `NIKITA_X_CHANNEL_ID` is the destination channel. Give the bot View Channel, Send Messages,
+  Embed Links, Attach Files, and Read Message History.
+- `NIKITA_X_GUILD_ID` is the server allowed to manage the feed through
+  `/config edit setting:nikita action:set`. Guild-only setup uses the default
+  settings file or the existing path override.
+  In the server, the Discord setting takes precedence over the host's channel ID. Leaving both channel settings
+  empty pauses new delivery. X and translator credentials stay on the host.
+- `NIKITA_X_BEARER_TOKEN` is an X app-only token with User Lookup, User Posts timeline,
+  and Post Lookup access.
+- `NIKITA_X_STATE_FILE` is an absolute file path under an existing writable, persistent
+  directory. The file tracks post and Discord message IDs across restarts. Run one
+  feed instance at a time, including during deploys, and preserve this file.
+  With a guild ID configured, a channel change affects new alerts. The bot keeps
+  checking existing alerts in their original channels.
+  Keep access to those channels for edits and removals.
+- `NIKITA_X_TRANSLATE_URL` is the HTTPS `/translate` URL for your LibreTranslate-compatible
+  service. Post text is sent there for translation when needed. Set
+  `NIKITA_X_TRANSLATE_API_KEY` if the service requires a key.
+
+The first successful poll records the latest post as a starting point. Subsequent polls
+resume from that point. Failed translations get retried after 15 minutes. The feed also
+rechecks previously relayed posts every 12 hours to apply edits and removals. These
+lookups use [X API read credits](https://docs.x.com/x-api/getting-started/pricing) as
+the tracked history grows. Check the app's credit and spending limits before enabling.
+If the host has no default channel, reset the Discord destination to stop new alerts
+while keeping rechecks active. When the feed is disabled entirely, a moderator with
+Manage Messages can locate the alert by its X link and delete it in Discord.
+Handle removal requests from X or the account owner within
+24 hours. See the [X Developer Policy](https://docs.x.com/developer-terms/policy#public-display-of-posts).
+
 ## Help desk
 
 The optional help desk provides three public-help routes and two private ticket
@@ -378,8 +454,9 @@ smoke tests first. Official API references:
 
 ## Notification-role configuration
 
-Existing button custom IDs remain recognized; availability depends on the role
-safety checks below. Optional stable ID overrides survive role renames: `REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
+Existing button custom IDs remain recognized. Use `/config edit` to choose a
+notification setting and role. Configured IDs survive role renames. The environment defaults are
+`REACTION_ROLE_SITE_ID`, `REACTION_ROLE_MONITOR_ID`,
 `REACTION_ROLE_POLLS_ID`, `REACTION_ROLE_NEWS_ID`, `REACTION_ROLE_NOTIFS_ID`.
 Unset/blank values use the legacy names `site`, `monitor`, `polls`, `news`, `notifs`
 (case-insensitive, trimmed). Invalid explicit IDs never silently fall back.
