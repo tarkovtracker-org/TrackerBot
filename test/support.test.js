@@ -11,7 +11,7 @@ import { handleSupportInteraction } from "../src/interactions/supportHandlers.js
 import { executeSupport, supportPanel } from "../src/commands/supportCommand.js";
 import { registerInteractionHandler } from "../src/handlers/interactionHandler.js";
 import { handleChatInputCommand } from "../src/interactions/slashHandlers.js";
-import { initializeDestinations, isSupportActive, updateDestination } from "../src/config/destinations.js";
+import { initializeDestinations, isSupportActivationPending, isSupportActive, updateDestination } from "../src/config/destinations.js";
 
 const ids = {
   guild: "100000000000000001", bot: "100000000000000002", member: "100000000000000003",
@@ -266,6 +266,38 @@ test("upgrade keeps complete but unusable settings in setup when no managed tick
   f.channels.get(ids.account).permissionsFor = () => ({ has: () => false });
   await migrateSupportActivations([f.guild]);
   assert.equal(isSupportActive(ids.guild), false, "missing permissions must block automatic activation");
+});
+
+test("upgrade retries unassessed servers without falling back to legacy routing", async () => {
+  const f = fixture();
+  const file = `${settingsFile}.unavailable`;
+  const fetchBot = f.guild.members.fetchMe;
+  f.guild.available = false;
+  f.guild.members.me = null;
+  await initializeDestinations(file);
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActivationPending(ids.guild), true);
+
+  await initializeDestinations(file);
+  assert.equal(isSupportActivationPending(ids.guild), true);
+  const legacy = fixture({ action: "legacy" });
+  legacy.interaction.isRepliable = () => true;
+  legacy.interaction.reply = async payload => legacy.replies.push(payload);
+  let dispatch;
+  registerInteractionHandler({ on: (_event, callback) => { dispatch = callback; } },
+    guildId => !isSupportActivationPending(guildId));
+  await dispatch(legacy.interaction);
+  assert.match(last(legacy), /waiting for server data/);
+  assert.equal(legacy.created.length, 0);
+  f.guild.available = true;
+  f.guild.members.fetchMe = async () => { throw new Error("temporarily unavailable"); };
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActivationPending(ids.guild), true);
+
+  f.guild.members.fetchMe = fetchBot;
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActive(ids.guild), true);
+  assert.equal(isSupportActivationPending(ids.guild), false);
 });
 
 test("a draft help desk rejects both its menu and old confirmation buttons", async () => {

@@ -83,10 +83,11 @@ private ticket, not in the public help channel or a public GitHub issue.
 
 On the first startup after upgrade, TrackerBot activates an existing setup if
 its settings pass validation against Discord's startup data. A recognized managed
-ticket also preserves activation, even when the setup needs repair. Run
-`/support check` after upgrading to confirm the server's status, especially if the
-server was unavailable or its setup was incomplete. Keep the Discord settings
-directory on the same persistent volume for future deployments.
+ticket also preserves activation, even when the setup needs repair. TrackerBot
+asks members to retry while Discord data is unavailable and reassesses the
+server when it becomes available or the bot restarts. Use `/support check` to
+confirm activation. Keep the Discord settings directory on the same persistent
+volume for future deployments.
 
 The live dropdown uses five fixed routes: Tracker, RatScanner, Monitor, account
 support, and harassment/unwanted DMs. Product responses are private-to-user links,

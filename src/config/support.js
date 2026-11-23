@@ -36,22 +36,28 @@ function supportDestinationId(guildId, key, name) {
 }
 
 export function migrateSupportActivations(guilds) {
-  return initializeSupportActivations(() => [...guilds].filter(guild => {
-    // A managed ticket is evidence of previous use even if the configuration has since broken.
-    if (guild.channels.cache.some(channel => {
-      const ticket = channel.type === ChannelType.GuildText && parseTicketTopic(channel.topic);
-      if (!ticket || !channel.parentId) return false;
-      const key = `support-${ticket.type}`;
-      return channel.parentId === getDestinationId(guild.id, key)
-        || channel.parentId === getPreviousTicketParent(guild.id, key, channel.id);
-    })) return true;
+  return initializeSupportActivations(shouldAssess => Promise.all([...guilds]
+    .filter(guild => shouldAssess(guild.id))
+    .map(async guild => [guild.id, await assessExistingHelpDesk(guild)])));
+}
 
-    const { config, problems } = readSupportConfig(guild.id);
-    const bot = guild.members.me;
-    if (problems.length || !bot) return false;
-    checkSupportResources(problems, config, guild, guild.channels.cache, guild.roles.cache, bot);
-    return problems.length === 0;
-  }).map(guild => guild.id));
+async function assessExistingHelpDesk(guild) {
+  if (guild.available === false) return null;
+  // A managed ticket is evidence of previous use even if the configuration has since broken.
+  if (guild.channels.cache.some(channel => {
+    const ticket = channel.type === ChannelType.GuildText && parseTicketTopic(channel.topic);
+    if (!ticket || !channel.parentId) return false;
+    const key = `support-${ticket.type}`;
+    return channel.parentId === getDestinationId(guild.id, key)
+      || channel.parentId === getPreviousTicketParent(guild.id, key, channel.id);
+  })) return true;
+
+  const { config, problems } = readSupportConfig(guild.id);
+  if (problems.length) return false;
+  const bot = guild.members.me ?? await guild.members.fetchMe({ force: true }).catch(() => null);
+  if (!bot) return null;
+  checkSupportResources(problems, config, guild, guild.channels.cache, guild.roles.cache, bot);
+  return problems.length === 0;
 }
 
 function contactUrl(guildId, key) {

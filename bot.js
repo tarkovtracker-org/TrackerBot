@@ -2,7 +2,7 @@ import "dotenv/config";
 import { Events } from "discord.js";
 import { createClient } from "./src/client/createClient.js";
 import { ensureEnvVars } from "./src/config/env.js";
-import { initializeDestinations } from "./src/config/destinations.js";
+import { initializeDestinations, isSupportActivationPending } from "./src/config/destinations.js";
 import { migrateSupportActivations } from "./src/config/support.js";
 import { registerSlashCommands } from "./src/commands/registerSlashCommands.js";
 import { registerInteractionHandler } from "./src/handlers/interactionHandler.js";
@@ -41,6 +41,9 @@ client.once(Events.ClientReady, async () => {
     return;
   }
   settingsReady = true;
+  for (const guild of client.guilds.cache.values()) {
+    if (guild.available) void retryGuildActivation(guild);
+  }
 
   try {
     await registerSlashCommands(client);
@@ -50,7 +53,17 @@ client.once(Events.ClientReady, async () => {
   }
 });
 
-registerInteractionHandler(client, () => settingsReady);
+async function retryGuildActivation(guild) {
+  if (!settingsReady || !isSupportActivationPending(guild.id)) return;
+  try {
+    await migrateSupportActivations([guild]);
+  } catch (err) {
+    console.warn("Could not retry help-desk activation", { code: err?.code ?? "unknown" });
+  }
+}
+
+client.on(Events.GuildAvailable, retryGuildActivation);
+registerInteractionHandler(client, guildId => settingsReady && !isSupportActivationPending(guildId));
 registerMemberHandlers(client);
 setupHoneypot(client);
 setupNikitaXFeed(client);

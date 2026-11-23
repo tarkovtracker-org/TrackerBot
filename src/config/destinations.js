@@ -104,7 +104,7 @@ export async function initializeDestinations(path) {
     const subscriptions = parsed.nikitaSubscriptions ?? {};
     const activeSupport = parsed.supportActivations;
     if (activeSupport !== undefined && (!activeSupport || typeof activeSupport !== "object" || Array.isArray(activeSupport) ||
-        !Object.entries(activeSupport).every(([guild, active]) => isDiscordId(guild) && active === true))) {
+        !Object.entries(activeSupport).every(([guild, active]) => isDiscordId(guild) && (active === true || active === null)))) {
       throw new Error("The help-desk activations in the Discord settings file are invalid.");
     }
     if (typeof subscriptions !== "object" || Array.isArray(subscriptions) ||
@@ -152,6 +152,7 @@ export async function initializeDestinations(path) {
 
 export const canConfigureDestinations = () => Boolean(file);
 export const isSupportActive = guildId => supportActivations?.[guildId] === true;
+export const isSupportActivationPending = guildId => supportActivations?.[guildId] === null;
 export function getNikitaSubscription(guildId) {
   const channelId = settings[guildId]?.nikita;
   const subscriptionId = nikitaSubscriptions[guildId];
@@ -226,12 +227,19 @@ function queueWrite(buildState) {
   return update;
 }
 
-export function initializeSupportActivations(findExistingGuilds) {
-  if (supportActivations !== undefined) return;
-  return queueWrite(state => ({
-    ...state,
-    supportActivations: Object.fromEntries(findExistingGuilds().map(id => [id, true]))
-  }));
+export async function initializeSupportActivations(assessGuilds) {
+  const firstStartup = supportActivations === undefined;
+  const assessed = await assessGuilds(guildId => firstStartup || isSupportActivationPending(guildId));
+  if (!firstStartup && !assessed.length) return;
+  return queueWrite(state => {
+    const activations = { ...state.supportActivations };
+    for (const [guildId, active] of assessed) {
+      if (state.supportActivations !== undefined && activations[guildId] !== null) continue;
+      if (active === false) delete activations[guildId];
+      else activations[guildId] = active;
+    }
+    return { ...state, supportActivations: activations };
+  });
 }
 
 export function activateSupport(guildId, validate) {
