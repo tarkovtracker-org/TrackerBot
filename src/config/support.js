@@ -18,7 +18,8 @@ export const conversationAccess = [
   PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages,
   PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks
 ];
-export const ticketBotAccess = [...conversationAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
+const ticketBotOverwriteAccess = [...conversationAccess, PermissionFlagsBits.ManageChannels];
+export const ticketBotAccess = [...ticketBotOverwriteAccess, PermissionFlagsBits.ManageRoles];
 
 export class SupportConfigurationError extends Error {}
 
@@ -140,6 +141,9 @@ function checkSupportDestination(problems, guild, channel, type, bot, required, 
 }
 
 function checkSupportResources(problems, config, guild, channels, roles, bot) {
+  if (!bot.permissions.has(PermissionFlagsBits.ManageRoles)) {
+    problems.push("Give TrackerBot Manage Roles through its server role so it can update ticket permissions.");
+  }
   for (const product of Object.values(config.products)) {
     if (!product.channelId) continue;
     checkSupportDestination(problems, guild, channels.get(product.channelId), ChannelType.GuildText, bot,
@@ -202,7 +206,7 @@ export function ticketOverwrites(guildId, botId, ticket, ownerId, state) {
     { id: guildId, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
     { id: ownerId, type: OverwriteType.Member, allow: conversationAccess.filter(bit => state === "open" || bit !== PermissionFlagsBits.SendMessages),
       deny: state === "closed" ? [PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads] : [] },
-    { id: botId, type: OverwriteType.Member, allow: ticketBotAccess },
+    { id: botId, type: OverwriteType.Member, allow: ticketBotOverwriteAccess },
     ...ticket.roleIds.map(roleId => ({ id: roleId, type: OverwriteType.Role, allow: conversationAccess }))
   ];
 }

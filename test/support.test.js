@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { ChannelType, Collection, MessageFlags, OverwriteType, PermissionOverwrites, PermissionFlagsBits as P } from "discord.js";
 import { adminRoles, isSafeNotificationRole } from "../src/config/constants.js";
-import { getSupportConfig, loadSupportContext, migrateSupportActivations, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketTopic } from "../src/config/support.js";
+import { getSupportConfig, loadSupportContext, migrateSupportActivations, parseTicketTopic, supportMenuId, ticketConfirmationId, ticketTopic } from "../src/config/support.js";
 import { handleSupportInteraction } from "../src/interactions/supportHandlers.js";
 import { executeSupport, supportPanel } from "../src/commands/supportCommand.js";
 import { registerInteractionHandler } from "../src/handlers/interactionHandler.js";
@@ -59,7 +59,7 @@ function fixture({ actor = ids.member, actorRoles = [], action = "menu", value =
   const permissions = { has: () => true };
   const member = { id: actor, user: { username: "requester" }, permissions: { has: () => true },
     roles: { cache: new Collection(actorRoles.map(id => [id, { id, guild }])) } };
-  const bot = { id: ids.bot };
+  const bot = { id: ids.bot, permissions };
   const channels = new Collection();
   const roles = new Collection([ids.accountRole, ids.moderationRole, ids.admin].map(id => [id, { id, name: "Staff", guild, managed: false }]));
   const channel = (id, type) => ({ id, type, guildId: ids.guild, permissionsFor: () => permissions });
@@ -210,6 +210,12 @@ test("support check lists multiple blockers in one reply", async () => {
   assert.match(last(f), /SUPPORT_TRACKER_CHANNEL_ID/);
   assert.match(last(f), /SUPPORT_MODERATION_STAFF_ROLE_IDS/);
   assert.match(last(f), /SUPPORT_ACCOUNT_CATEGORY_ID/);
+});
+
+test("support setup requires Manage Roles on the bot's server role", async () => {
+  const f = fixture();
+  f.guild.members.me.permissions = { has: permission => permission !== P.ManageRoles };
+  await assert.rejects(loadSupportContext(f.guild), /Give TrackerBot Manage Roles through its server role/);
 });
 
 test("activation rechecks both administrator permissions and the configured role before saving", async () => {
@@ -401,7 +407,9 @@ for (const value of ["account", "moderation"]) {
     assert.deepEqual(created.permissionOverwrites.map(item => item.id), [ids.guild, ids.member, ids.bot, ids[`${value}Role`]]);
     assert.deepEqual(created.permissionOverwrites[0].deny, [P.ViewChannel]);
     assert.equal(created.permissionOverwrites.some(item => item.id === ids[value === "account" ? "moderationRole" : "accountRole"]), false);
-    assert.deepEqual(created.permissionOverwrites[2].allow, ticketBotAccess);
+    // Discord rejects an explicit Manage Roles overwrite from a non-admin bot.
+    assert.deepEqual(created.permissionOverwrites[2].allow,
+      [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.ManageChannels]);
     assert.equal(created.permissionOverwrites[3].allow.includes(P.ManageChannels), false);
     assert.equal(created.permissionOverwrites[1].allow.includes(P.AttachFiles), true);
     assert.equal(f.publicMessages[0].components[0].toJSON().components.length, 2);
@@ -641,6 +649,7 @@ for (const action of ["close", "reopen"]) {
     assert.equal(f.edits.length, 1);
     assert.equal(f.edits[0].topic, ticketTopic("moderation", ids.member, state));
     assert.deepEqual(f.edits[0].permissionOverwrites.map(item => item.id), [ids.guild, ids.member, ids.bot, ids.moderationRole]);
+    assert.equal(f.edits[0].permissionOverwrites[2].allow.includes(P.ManageRoles), false);
     const owner = f.edits[0].permissionOverwrites[1];
     assert.equal(owner.allow.includes(P.SendMessages), state === "open");
     assert.equal(owner.deny.includes(P.SendMessages), state === "closed");

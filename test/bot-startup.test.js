@@ -108,7 +108,7 @@ function startWithPendingHelpDesk(scenario) {
       fetchMe: async () => {
         fetches++;
         if (!restored) throw new Error("temporary Discord failure");
-        return { id: "100000000000000003" };
+        return { id: "100000000000000003", permissions: { has: () => true } };
       },
       fetch: async () => admin
     };

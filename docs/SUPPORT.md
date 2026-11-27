@@ -45,9 +45,10 @@ The bot needs View Channel, Send Messages, Read Message History, Embed Links,
 Attach Files, Manage Channels and Manage Roles in both ticket categories. It needs
 View Channel, Send Messages, Read Message History and Embed Links in the panel
 channel. Assign only the permissions/hierarchy it actually needs, not Administrator.
+Grant Manage Roles through the bot's server role so it can update ticket permissions.
 New tickets use explicit overwrites: `@everyone` denied View Channel; requester
 and that queue's staff get ordinary conversation/file permissions; the bot gets
-conversation plus channel/overwrite management. Category overwrites are not copied.
+conversation plus Manage Channels. Category overwrites are not copied.
 Notification-role buttons reject both new staff-role lists as self-service roles.
 
 **Discord administrators always retain access.** Existing management privileges can
