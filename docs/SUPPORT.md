@@ -67,16 +67,27 @@ private ticket, not in the public help channel or a public GitHub issue.
 2. Grant the configured `ADMIN_ROLE_ID` roles access to `/support` in Discord's
    Integrations settings if they lack Administrator. Runtime checks force-fetch
    current membership before checking/publishing and again after confirmation.
-3. Run `/support check`. It validates current channels, roles, contact URL shape,
-   and bot permissions. It does not certify production hosting, member visibility,
-   role membership, or that people will answer the contact links.
-4. Run `/support panel` in the intended read-only help-desk channel. Inspect the
+3. Run `/support check` for activation status and any setup blockers. It checks
+   channels, roles, contact URL shape, and the bot's required permissions. Verify
+   member visibility, role membership, and contact responsiveness separately.
+4. Once the checklist passes, run `/support activate` with Discord Administrator
+   and a configured TrackerBot admin role. This rechecks setup and switches the
+   existing ticket button to the account-support privacy prompt immediately.
+5. Run `/support panel` in the intended read-only help-desk channel. Inspect the
    private preview and confirm Publish. Cancel/expiry publishes nothing. Save the
    returned message ID; later use `/support panel message_id:<id>` in that same
    channel to update it. Only a bot-owned help-desk panel can be updated.
-5. Complete the smoke tests below before redirecting old channels or onboarding
+6. Complete the smoke tests below before redirecting old channels or onboarding
    links. Publishing a new panel is deliberate; rerunning without `message_id`
    creates another panel. The bot never scans history or republishes on restart.
+
+On the first startup after upgrade, TrackerBot activates an existing setup if
+its settings pass validation against Discord's startup data. A recognized managed
+ticket also preserves activation, even when the setup needs repair. TrackerBot
+asks members to retry while Discord data is unavailable and reassesses the
+server when it becomes available or the bot restarts. Use `/support check` to
+confirm activation. Keep the Discord settings directory on the same persistent
+volume for future deployments.
 
 The live dropdown uses five fixed routes: Tracker, RatScanner, Monitor, account
 support, and harassment/unwanted DMs. Product responses are private-to-user links,
@@ -134,6 +145,12 @@ account creation. There is no new server-wide ticket rate limiter.
 
 ## Required live smoke tests (staging, then approved production)
 
+- Staging cutover: with a draft help desk, use the old ticket button before and
+  during setup. Use a separate requester each time to verify ticket creation in
+  the legacy category. Run `/support activate` when the checklist passes. Use
+  the same button with a fresh requester and verify the privacy prompt and
+  account-queue permissions. Temporarily remove a required bot permission and
+  verify the old button cannot create a ticket in either category.
 - Ordinary member: open the panel with no optional onboarding answers. All three
   product links and bug/contact links are usable; inaccessible product routing
   gives no private channel link. No product selection creates a ticket or posts
@@ -164,23 +181,14 @@ Do not declare live production verification complete without this evidence.
 
 ## Rollback
 
-Before enabling settings, save the old ticket-entry message references and review
-outstanding tickets. With **no** help-desk settings configured, legacy ticket
-buttons retain their old creation behavior. With **any** configured, they show the
-new account-ticket privacy disclosure; partial/invalid configuration fails closed.
-
-To disable rollout, remove/disable the new panel's interactive entry and point
-members to its permanent links. Remove all nine `SUPPORT_*` host settings and
-restart with the same settings file available. Use `/config edit` with Reset to
-default for all five support destinations and both contact links. Check the
-Destinations and Support links sections in `/config view` before enabling the
-legacy entry.
-If you restore the help desk with different destinations later, update the
-existing panel with `/support panel message_id:<id>` before directing members to it.
-Preserve/review existing ticket channels and their explicit
-permissions; removing settings does not delete or migrate them, and new-ticket
-lifecycle operations will remain unavailable until valid settings are restored.
-Removing the new staff settings also removes their notification-button exclusion,
-so review configured notification-role IDs/names before rollback. Do not re-enable
-legacy entry unless its `TICKET_CATEGORY_ID`/`TICKET_STAFF_ROLE_IDS` audience is
-appropriate. Repository tests neither deploy the bot nor perform these writes.
+Before activation, save the old ticket-entry message references and review
+outstanding tickets. To retire the public entry points, remove their interactive
+messages, including the old ticket button, and point members to permanent contact
+links. Keep the help desk configured, including activation, destinations, links,
+and queue staff roles, so existing tickets can still be managed. After activation, new ticket
+requests fail closed until the required settings and permissions are restored.
+If destinations change, refresh the panel with `/support panel message_id:<id>`
+before directing members to it.
+Before a binary rollback that restores legacy routing, verify the intended
+`TICKET_CATEGORY_ID` and `TICKET_STAFF_ROLE_IDS` audience. If staff roles are
+removed from the host settings, review notification-role assignments as well.

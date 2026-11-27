@@ -285,11 +285,12 @@ Handle removal requests from X or the account owner within
 ## Help desk
 
 The optional help desk provides three public-help routes and two private ticket
-queues (account/progress and harassment/unwanted DMs). `/support check` validates
-configuration privately; `/support panel` previews publishing a panel in the
-current channel, or updates an existing panel with `message_id`. Nothing is
-posted automatically on startup. Permanent contact/product/bug links work without
-the bot. Members see the intended ticket audience before opening a channel.
+queues (account/progress and harassment/unwanted DMs). Use `/support check` for
+the private setup checklist, then `/support activate` to switch the old ticket
+button to account support. Use `/support panel` to preview and publish the menu
+in the current channel, or update an existing panel with `message_id`. Permanent
+contact, product, and bug links work without the bot. Members see the intended
+ticket audience before opening a channel.
 
 New tickets retain their history when closed. Requesters or members of the configured
 queue staff roles can close; only members of those roles can reopen. Buttons survive restarts;
@@ -297,12 +298,14 @@ queue staff roles can close; only members of those roles can reopen. Buttons sur
 delivered. No transcript export, automatic deletion, or onboarding edits are added.
 Discord administrators inherently retain access; do not promise anonymity from them.
 
-All nine optional `SUPPORT_*` settings in `.env.example` are required together.
-With none configured, existing ticket buttons keep their previous behavior. With
-any configured, old `create_ticket` buttons route to the new account-support
-privacy disclosure; invalid/partial settings fail closed rather than using legacy
-staff access. Existing ticket permissions are not migrated. Locks are process-local;
-confirm a single bot instance, including deployment overlap, before rollout.
+All nine help-desk settings are required for activation. The old ticket button
+keeps using the legacy route during setup. Once activated, broken configuration
+blocks new tickets until setup is repaired. Activation persists in the Discord
+settings file across restarts. Existing ticket permissions are preserved. Use a
+single bot instance, including during deployments.
+
+On upgrade, servers with a valid existing setup or a recognized managed ticket
+start active. Use `/support check` after upgrading to confirm the server's status.
 
 See [help-desk setup, privacy, smoke tests, and rollback](docs/SUPPORT.md).
 
@@ -362,7 +365,8 @@ reorganize the server or alter existing category permissions.
 | `/tt url [private] [reply_to]` | Share the website with a clean embed and link button. |
 | `/tt resources [private] [reply_to]` | Share maintained website guides and community tools. |
 | `/tt help` | Private command guide, available to every member. |
-| `/support check` | Admin-only private validation of help-desk configuration and bot permissions. |
+| `/support check` | Admin-only private help-desk status, setup blockers, and next action. |
+| `/support activate` | Recheck setup and switch the old ticket button to the help desk. Requires Discord Administrator and a configured TrackerBot admin role. |
 | `/support panel [message_id]` | Admin-only preview to publish/update a help-desk panel in this channel. |
 | `/ticket close` / `/ticket reopen` | Retain a managed ticket's history; reopening requires membership in its configured queue staff roles. |
 | `/message content [title] [reply_to] [preview]` | Admin-only announcement/reply; defaults to a private Send/Cancel preview. Optional title sends a styled embed; otherwise plain text. |

@@ -41,6 +41,7 @@ let previousTickets = {};
 let honeypotActivations = {};
 let guildPreferences = {};
 let nikitaSubscriptions = {};
+let supportActivations;
 let writes = Promise.resolve();
 const guildOperations = new Map();
 
@@ -80,6 +81,7 @@ export async function initializeDestinations(path) {
     honeypotActivations = {};
     guildPreferences = {};
     nikitaSubscriptions = {};
+    supportActivations = undefined;
     return;
   }
   if (!isAbsolute(path)) throw new Error("TRACKERBOT_DESTINATIONS_FILE must be absolute.");
@@ -100,6 +102,11 @@ export async function initializeDestinations(path) {
     const activations = parsed.honeypotActivations ?? {};
     const savedPreferences = parsed.preferences ?? {};
     const subscriptions = parsed.nikitaSubscriptions ?? {};
+    const activeSupport = parsed.supportActivations;
+    if (activeSupport !== undefined && (!activeSupport || typeof activeSupport !== "object" || Array.isArray(activeSupport) ||
+        !Object.entries(activeSupport).every(([guild, active]) => isDiscordId(guild) && (active === true || active === null)))) {
+      throw new Error("The help-desk activations in the Discord settings file are invalid.");
+    }
     if (typeof subscriptions !== "object" || Array.isArray(subscriptions) ||
       !Object.entries(subscriptions).every(([guild, id]) => isDiscordId(guild)
         && (parsed.guilds[guild]?.nikita ? isSubscriptionId(id) : id === null))) {
@@ -131,17 +138,21 @@ export async function initializeDestinations(path) {
     honeypotActivations = activations;
     guildPreferences = savedPreferences;
     nikitaSubscriptions = subscriptions;
+    supportActivations = activeSupport;
   } else {
     settings = {};
     previousTickets = {};
     honeypotActivations = {};
     guildPreferences = {};
     nikitaSubscriptions = {};
+    supportActivations = undefined;
   }
   file = path;
 }
 
 export const canConfigureDestinations = () => Boolean(file);
+export const isSupportActive = guildId => supportActivations?.[guildId] === true;
+export const isSupportActivationPending = guildId => supportActivations?.[guildId] === null;
 export function getNikitaSubscription(guildId) {
   const channelId = settings[guildId]?.nikita;
   const subscriptionId = nikitaSubscriptions[guildId];
@@ -196,7 +207,7 @@ function queueWrite(buildState) {
   let replaced = false;
   const update = writes.then(async () => {
     const next = buildState({ version: 1, guilds: settings, previousTickets, honeypotActivations,
-      preferences: guildPreferences, nikitaSubscriptions });
+      preferences: guildPreferences, nikitaSubscriptions, supportActivations });
     await writeJsonAtomically(file, next, () => {
       replaced = true;
       settings = next.guilds;
@@ -204,6 +215,7 @@ function queueWrite(buildState) {
       honeypotActivations = next.honeypotActivations;
       guildPreferences = next.preferences;
       nikitaSubscriptions = next.nikitaSubscriptions;
+      supportActivations = next.supportActivations;
     });
     return true;
   }).catch(error => {
@@ -213,6 +225,34 @@ function queueWrite(buildState) {
   });
   writes = update.catch(() => {});
   return update;
+}
+
+export async function initializeSupportActivations(assessGuilds) {
+  const firstStartup = supportActivations === undefined;
+  const assessed = await assessGuilds(guildId => firstStartup || isSupportActivationPending(guildId));
+  if (!firstStartup && !assessed.length) return;
+  return queueWrite(state => {
+    const activations = { ...state.supportActivations };
+    for (const [guildId, active] of assessed) {
+      if (state.supportActivations !== undefined && activations[guildId] !== null) continue;
+      if (active === false) delete activations[guildId];
+      else activations[guildId] = active;
+    }
+    return { ...state, supportActivations: activations };
+  });
+}
+
+export function activateSupport(guildId, validate) {
+  if (!file || supportActivations === undefined || !isDiscordId(guildId)) {
+    throw new Error("Help-desk activation storage is unavailable.");
+  }
+  return withDestinationLock(guildId, async () => {
+    await validate();
+    if (isSupportActive(guildId)) return null;
+    return queueWrite(state => ({
+      ...state, supportActivations: { ...state.supportActivations, [guildId]: true }
+    }));
+  }, true);
 }
 
 export function updatePreference(guildId, key, value, validate) {
