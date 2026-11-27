@@ -72,7 +72,9 @@ async function assessExistingHelpDesk(guild) {
 
 function contactUrl(guildId, key) {
   const { env, parse } = supportLinks[key];
-  const url = parse(getPreference(guildId, key));
+  const value = getPreference(guildId, key);
+  if (!value && key === "escalation") return undefined;
+  const url = parse(value);
   if (!url) throw new SupportConfigurationError(`Set an HTTPS private-contact link with \`/config edit setting:${key} action:set url:<https-link>\` or configure ${env} on the host.`);
   return url;
 }

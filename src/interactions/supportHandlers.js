@@ -6,6 +6,7 @@ import { noMentions } from "../utils/messageReply.js";
 
 const operations = new Set();
 const bugUrl = "https://github.com/tarkovtracker-org/TarkovTracker/issues/new/choose";
+const escalationUnavailable = "Independent escalation is unavailable. Keep concerns about anyone with ticket access out of this ticket.";
 
 export function ticketControls() {
   return new ActionRowBuilder().addComponents(
@@ -68,9 +69,12 @@ export async function handleSupportInteraction(interaction) {
           permissionOverwrites: ticketOverwrites(interaction.guildId, bot.id, ticket, interaction.user.id, "open"),
           reason: "Member requested private support"
         });
+        const escalationNotice = config.escalationUrl
+          ? `Alternative private contact: ${config.escalationUrl}`
+          : escalationUnavailable;
         await created.send({
           embeds: [createCardEmbed({ title: ticket.label,
-            description: `<@${interaction.user.id}> describe the issue here; include relevant links/screenshots. Do not share passwords or tokens.\nVisible to you, the bot, ${ticket.roleIds.map(roleId => `<@&${roleId}>`).join(", ")}, and Discord administrators.\nAlternative private contact: ${config.escalationUrl}` })],
+            description: `<@${interaction.user.id}> describe the issue here; include relevant links/screenshots. Do not share passwords or tokens.\nVisible to you, the bot, ${ticket.roleIds.map(roleId => `<@&${roleId}>`).join(", ")}, and Discord administrators.\n${escalationNotice}` })],
           components: [ticketControls()], allowedMentions: noMentions
         }).catch(err => console.warn("Support ticket opening notice failed", { code: err?.code ?? "unknown" }));
         await interaction.editReply({ content: `Your private ticket is ready: <#${created.id}>.`, allowedMentions: noMentions })
@@ -98,12 +102,21 @@ export async function handleSupportInteraction(interaction) {
         });
       } else if (Object.hasOwn(config.tickets, value)) {
         const ticket = config.tickets[value];
+        const actions = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(ticketConfirmationId(value, config)).setLabel("Open private ticket").setStyle(ButtonStyle.Primary)
+        );
+        const escalationNotice = config.escalationUrl
+          ? "Use the alternative contact for concerns about anyone with ticket access."
+          : escalationUnavailable;
+        if (config.escalationUrl) {
+          actions.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link)
+            .setLabel("Alternative private contact").setURL(config.escalationUrl));
+        }
+        const details = value === "moderation" ? "Share what happened, message/user links, and screenshots inside the ticket."
+          : "Describe the account or progress problem inside the ticket.";
         await interaction.editReply({
-          content: `${ticket.label}: a private channel will be visible to you, the bot, and ${ticket.roleIds.map(roleId => `<@&${roleId}>`).join(", ")}. Discord administrators always retain access.\n${value === "moderation" ? "Share what happened, message/user links, and screenshots inside the ticket. If your report concerns someone with ticket access, use the alternative contact instead. " : "Describe the account or progress problem inside the ticket. "}Never share passwords or tokens.`,
-          components: [new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(ticketConfirmationId(value, config)).setLabel("Open private ticket").setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Alternative private contact").setURL(config.escalationUrl)
-          )], allowedMentions: noMentions
+          content: `${ticket.label}: a private channel will be visible to you, the bot, and ${ticket.roleIds.map(roleId => `<@&${roleId}>`).join(", ")}. Discord administrators always retain access.\n${details} ${escalationNotice} Never share passwords or tokens.`,
+          components: [actions], allowedMentions: noMentions
         });
       } else {
         await interaction.editReply({ content: "Unknown help option. Use the current help-desk panel." });

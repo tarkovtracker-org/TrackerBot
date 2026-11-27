@@ -218,6 +218,48 @@ test("support setup requires Manage Roles on the bot's server role", async () =>
   await assert.rejects(loadSupportContext(f.guild), /Give TrackerBot Manage Roles through its server role/);
 });
 
+test("a primary contact alone supports activation and a one-link contact row", async () => {
+  const f = fixture({ actorRoles: [ids.admin] });
+  await initializeDestinations(`${settingsFile}.primary-only`);
+  await migrateSupportActivations([]);
+  delete process.env.SUPPORT_ESCALATION_URL;
+  f.setSubcommand("activate");
+  await executeSupport(f.interaction);
+  assert.match(last(f), /Help desk activated/);
+  assert.equal(isSupportActive(ids.guild), true);
+
+  const panel = supportPanel(getSupportConfig(ids.guild), ids.guild);
+  const contacts = panel.components.at(-1).toJSON().components;
+  assert.deepEqual(contacts.map(({ label, url }) => [label, url]), [["Private contact", settings.SUPPORT_CONTACT_URL]]);
+  assert.match(panel.embeds[0].toJSON().description, /Independent escalation is unavailable/);
+});
+
+for (const value of ["account", "moderation"]) {
+  test(`${value} tickets show safe reporting guidance when escalation is absent`, async () => {
+    delete process.env.SUPPORT_ESCALATION_URL;
+    const menu = fixture({ value });
+    await handleSupportInteraction(menu.interaction);
+    assert.match(last(menu), /Independent escalation is unavailable/);
+    assert.match(last(menu), /Keep concerns about anyone with ticket access out of this ticket/);
+    assert.equal(menu.replies.at(-1).components[0].toJSON().components.length, 1);
+
+    const request = fixture({ action: "open", value });
+    await handleSupportInteraction(request.interaction);
+    assert.equal(request.created.length, 1);
+    const notice = request.publicMessages[0].embeds[0].toJSON().description;
+    assert.match(notice, /Independent escalation is unavailable/);
+    assert.doesNotMatch(notice, /undefined|Alternative private contact:/);
+  });
+}
+
+test("clearing an escalation contact invalidates previously issued ticket confirmations", async () => {
+  const request = fixture({ action: "open", value: "moderation" });
+  delete process.env.SUPPORT_ESCALATION_URL;
+  await handleSupportInteraction(request.interaction);
+  assert.equal(request.created.length, 0);
+  assert.match(last(request), /ticket audience or destination changed/);
+});
+
 test("activation rechecks both administrator permissions and the configured role before saving", async () => {
   const f = fixture({ actorRoles: [ids.admin] });
   await initializeDestinations(`${settingsFile}.draft`);
@@ -719,7 +761,7 @@ for (const [name, value] of [
   ["SUPPORT_TRACKER_CHANNEL_ID", ""], ["SUPPORT_ACCOUNT_CATEGORY_ID", "bad"],
   ["SUPPORT_MODERATION_CATEGORY_ID", ids.account], ["SUPPORT_MODERATION_STAFF_ROLE_IDS", ids.accountRole],
   ["SUPPORT_ACCOUNT_STAFF_ROLE_IDS", `${ids.accountRole},,`], ["SUPPORT_ACCOUNT_STAFF_ROLE_IDS", ""],
-  ["SUPPORT_CONTACT_URL", "http://example.com"], ["SUPPORT_ESCALATION_URL", "https://secret@example.com"],
+  ["SUPPORT_CONTACT_URL", ""], ["SUPPORT_CONTACT_URL", "http://example.com"], ["SUPPORT_ESCALATION_URL", "https://secret@example.com"],
   ["SUPPORT_CONTACT_URL", `https://example.com/${"a".repeat(513)}`]
 ]) {
   test(`invalid support configuration fails closed: ${name} ${value.slice(0, 40)}`, async () => {

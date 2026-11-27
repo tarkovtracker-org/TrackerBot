@@ -10,9 +10,14 @@ const panelOperations = new Set();
 export function supportPanel(config, guildId) {
   const products = Object.entries(config.products);
   const link = (label, url) => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(label).setURL(url);
+  const contactButtons = new ActionRowBuilder().addComponents(link("Private contact", config.contactUrl));
+  const escalationNotice = config.escalationUrl
+    ? "Use Alternative contact if your concern involves someone who handles tickets."
+    : "Independent escalation is unavailable. Keep concerns about ticket staff out of tickets they can access.";
+  if (config.escalationUrl) contactButtons.addComponents(link("Alternative contact", config.escalationUrl));
   return {
     embeds: [createCardEmbed({ title: "How can we help?",
-      description: "Choose a tool for public help, or request a private account-support/moderation ticket. Ticket access is explained before you open one. Never post passwords, tokens, or personal evidence here.\n\nThe links below work even when the bot is offline. Use Alternative contact if your concern involves someone who handles tickets. Discord administrators inherently retain ticket access." })],
+      description: `Choose a tool for public help, or request a private account-support/moderation ticket. Ticket access is explained before you open one. Never post passwords, tokens, or personal evidence here.\n\nThe links below work even when the bot is offline. ${escalationNotice} Discord administrators inherently retain ticket access.` })],
     components: [
       new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(supportMenuId)
         .setPlaceholder("What do you need help with?").addOptions(
@@ -23,7 +28,7 @@ export function supportPanel(config, guildId) {
         ...products.map(([, product]) => link(product.label, `https://discord.com/channels/${guildId}/${product.channelId}`)),
         link("Tracker bug report", "https://github.com/tarkovtracker-org/TarkovTracker/issues/new/choose")
       ),
-      new ActionRowBuilder().addComponents(link("Private contact", config.contactUrl), link("Alternative contact", config.escalationUrl))
+      contactButtons
     ], allowedMentions: noMentions
   };
 }

@@ -8,7 +8,8 @@ account tokens for smoke tests.
 
 ## Configuration
 
-Configure the nine support settings below. Server administrators can choose
+Configure the required support settings and optionally add independent escalation.
+Server administrators can choose
 channels, categories, and contact URLs with `/config edit`. Configure the staff
 roles on the host.
 
@@ -22,13 +23,13 @@ roles on the host.
 | `SUPPORT_MODERATION_CATEGORY_ID` | Separate category for private moderation tickets |
 | `SUPPORT_MODERATION_STAFF_ROLE_IDS` | Comma-separated moderation role IDs |
 | `SUPPORT_CONTACT_URL` | HTTPS link to an approved private support contact |
-| `SUPPORT_ESCALATION_URL` | HTTPS link to an independent private escalation contact |
+| `SUPPORT_ESCALATION_URL` | Optional HTTPS link to an independent private escalation contact |
 
 Use IDs from the same guild. Staff lists must be nonempty, non-overlapping, and
 contain existing non-managed roles, never `@everyone`. Empty comma-separated items
 are rejected. Choose dedicated basic roles without administrative powers. A member
 may hold both staff roles; non-overlapping IDs do not prove separate personnel.
-Review memberships, including the independent escalation contact, before launch.
+Review queue staff and configured contact memberships before launch.
 Contact links are deliberately public; never put credentials in them. The bot
 validates URL shape, not the identity, availability, or independence of contacts.
 After changing a contact link, update the published panel with
@@ -54,9 +55,11 @@ Notification-role buttons reject both new staff-role lists as self-service roles
 **Discord administrators always retain access.** Existing management privileges can
 also permit administrative changes; overwrites are not an isolation boundary from
 server administrators. Do not promise anonymous reporting against them. The privacy
-prompt names the queue's staff roles and links the alternate contact before a
-separate confirmation opens a ticket. A confirmation from an older staff/category
-or escalation-contact configuration is rejected and requires a new privacy prompt.
+prompt names the queue's staff roles and shows an independent contact when
+configured. If independent escalation is unavailable, the panel and ticket
+prompt direct members to keep concerns about anyone with ticket access out of
+that ticket. A separate confirmation opens a ticket. A change to staff,
+category, or independent escalation requires a new privacy prompt.
 Collect report details only inside the
 private ticket, not in the public help channel or a public GitHub issue.
 
@@ -70,7 +73,7 @@ private ticket, not in the public help channel or a public GitHub issue.
    current membership before checking/publishing and again after confirmation.
 3. Run `/support check` for activation status and any setup blockers. It checks
    channels, roles, contact URL shape, and the bot's required permissions. Verify
-   member visibility, role membership, and contact responsiveness separately.
+   member visibility, role membership, and responsiveness of configured contacts separately.
 4. Once the checklist passes, run `/support activate` with Discord Administrator
    and a configured TrackerBot admin role. This rechecks setup and switches the
    existing ticket button to the account-support privacy prompt immediately.
@@ -171,8 +174,11 @@ account creation. There is no new server-wide ticket rate limiter.
   channel exists; account staff can see it; moderation-only staff and ordinary
   unrelated members cannot. Do not put real private evidence in smoke tests.
 - Moderation: open while the account ticket exists. A separate channel exists;
-  moderation staff can see it; account-only/developer roles cannot. Confirm the
-  named alternate contact is suitable for reports about normal ticket handlers.
+  moderation staff can see it; account-only/developer roles cannot. If configured,
+  confirm the independent contact is responsive and suitable for reports about
+  ticket handlers. With only a primary contact, verify activation and ticket
+  creation work, the alternative button is hidden, and the panel and privacy
+  prompt explain that independent escalation is unavailable.
 - Close as requester: history remains readable and sending/thread creation is
   denied. Requester cannot reopen; a member of its queue staff roles can. An unrelated staff
   role cannot. Remove a staff role and verify an old button cannot bypass removal.

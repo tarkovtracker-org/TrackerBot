@@ -298,7 +298,8 @@ queue staff roles can close; only members of those roles can reopen. Buttons sur
 delivered. No transcript export, automatic deletion, or onboarding edits are added.
 Discord administrators inherently retain access; do not promise anonymity from them.
 
-All nine help-desk settings are required for activation. The old ticket button
+Activation requires the destinations, staff roles, and a primary private contact.
+An independent escalation contact is optional. The old ticket button
 keeps using the legacy route during setup. Once activated, broken configuration
 blocks new tickets until setup is repaired. Activation persists in the Discord
 settings file across restarts. Existing ticket permissions are preserved. Use a
