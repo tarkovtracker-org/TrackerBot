@@ -104,7 +104,7 @@ export async function initializeDestinations(path) {
     const subscriptions = parsed.nikitaSubscriptions ?? {};
     const activeSupport = parsed.supportActivations;
     if (activeSupport !== undefined && (!activeSupport || typeof activeSupport !== "object" || Array.isArray(activeSupport) ||
-        !Object.entries(activeSupport).every(([guild, active]) => isDiscordId(guild) && (active === true || active === null)))) {
+        !Object.entries(activeSupport).every(([guild, state]) => isDiscordId(guild) && [true, null, "review"].includes(state)))) {
       throw new Error("The help-desk activations in the Discord settings file are invalid.");
     }
     if (typeof subscriptions !== "object" || Array.isArray(subscriptions) ||
@@ -153,6 +153,8 @@ export async function initializeDestinations(path) {
 export const canConfigureDestinations = () => Boolean(file);
 export const isSupportActive = guildId => supportActivations?.[guildId] === true;
 export const isSupportActivationPending = guildId => supportActivations?.[guildId] === null;
+export const isSupportActivationBlocked = guildId =>
+  isSupportActivationPending(guildId) || supportActivations?.[guildId] === "review";
 export function getNikitaSubscription(guildId) {
   const channelId = settings[guildId]?.nikita;
   const subscriptionId = nikitaSubscriptions[guildId];

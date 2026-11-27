@@ -41,6 +41,14 @@ export function migrateSupportActivations(guilds) {
     .map(async guild => [guild.id, await assessExistingHelpDesk(guild)])));
 }
 
+function hasExistingSupportConfiguration(guildId) {
+  // Match the settings that selected the help-desk route before explicit activation existed.
+  return Object.values(supportTicketTypes).some(({ prefix }) => Boolean(process.env[`${prefix}_STAFF_ROLE_IDS`]?.trim()))
+    || Object.keys(supportLinks).some(key => Boolean(getPreference(guildId, key)))
+    || [...Object.keys(supportProducts), ...Object.keys(supportTicketTypes)]
+      .some(key => Boolean(getDestinationId(guildId, `support-${key}`)));
+}
+
 async function assessExistingHelpDesk(guild) {
   if (guild.available === false) return null;
   // A managed ticket is evidence of previous use even if the configuration has since broken.
@@ -52,12 +60,13 @@ async function assessExistingHelpDesk(guild) {
       || channel.parentId === getPreviousTicketParent(guild.id, key, channel.id);
   })) return true;
 
+  if (!hasExistingSupportConfiguration(guild.id)) return false;
   const { config, problems } = readSupportConfig(guild.id);
-  if (problems.length) return false;
+  if (problems.length) return "review";
   const bot = guild.members.me ?? await guild.members.fetchMe({ force: true }).catch(() => null);
   if (!bot) return null;
   checkSupportResources(problems, config, guild, guild.channels.cache, guild.roles.cache, bot);
-  return problems.length === 0;
+  return problems.length ? "review" : true;
 }
 
 function contactUrl(guildId, key) {

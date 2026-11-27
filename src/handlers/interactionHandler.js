@@ -18,9 +18,9 @@ export function registerInteractionHandler(client, isReady = () => true) {
         return;
       }
 
-      if (!isReady(interaction.guildId)) {
+      if (!isReady()) {
         if (interaction.isRepliable()) {
-          await interaction.reply({ content: "TrackerBot is starting or waiting for server data. Try again in a moment.", flags: MessageFlags.Ephemeral });
+          await interaction.reply({ content: "TrackerBot is starting. Try again in a moment.", flags: MessageFlags.Ephemeral });
         }
         return;
       }

@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags, PermissionFlagsBits, StringSelectMenuBuilder } from "discord.js";
 import { hasAdminRole } from "../config/constants.js";
-import { activateSupport, isSupportActive, withDestinationReadLock } from "../config/destinations.js";
+import { activateSupport, isSupportActivationBlocked, isSupportActive, withDestinationReadLock } from "../config/destinations.js";
 import { loadSupportContext, SupportConfigurationError, supportMenuId } from "../config/support.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { noMentions } from "../utils/messageReply.js";
@@ -77,16 +77,24 @@ export async function executeSupport(interaction) {
     if (subcommand === "check") {
       const content = await withDestinationReadLock(interaction.guildId, async () => {
         const active = isSupportActive(interaction.guildId);
+        const blocked = isSupportActivationBlocked(interaction.guildId);
+        const paused = "Ticket creation is paused while the help desk is checked.";
         try {
           await loadSupportContext(interaction.guild);
         } catch (error) {
-          if (!(error instanceof SupportConfigurationError)) throw error;
-          return `${active ? "Help desk is active." : "Help desk is in setup. The old ticket button still uses the legacy route."}\n\nFix these setup blockers:\n${error.message}`;
+          if (!(error instanceof SupportConfigurationError)) {
+            if (!blocked) throw error;
+            console.warn("Could not check the paused help desk", { code: error?.code ?? "unknown" });
+            return `${paused} Discord checks could not complete. Run /support check again once Discord is available.`;
+          }
+          const status = blocked ? paused : active ? "Help desk is active."
+            : "Help desk is in setup. The old ticket button still uses the legacy route.";
+          return `${status}\n\nFix these setup blockers:\n${error.message}`;
         }
         const next = active
           ? "The help desk is active. Use /support panel to publish or update the panel."
           : "Ready to activate. A Discord administrator with the TrackerBot admin role can run /support activate.";
-        return `Support configuration checks passed. ${next}\n\nUse the documented live smoke tests to verify member access, contact responsiveness, and deployment behavior.`;
+        return `${blocked ? `${paused} ` : ""}Support configuration checks passed. ${next}\n\nUse the documented live smoke tests to verify member access, contact responsiveness, and deployment behavior.`;
       });
       await interaction.editReply({ content, allowedMentions: noMentions });
       return;

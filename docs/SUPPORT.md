@@ -83,11 +83,17 @@ private ticket, not in the public help channel or a public GitHub issue.
 
 On the first startup after upgrade, TrackerBot activates an existing setup if
 its settings pass validation against Discord's startup data. A recognized managed
-ticket also preserves activation, even when the setup needs repair. TrackerBot
-asks members to retry while Discord data is unavailable and reassesses the
-server when it becomes available or the bot restarts. Use `/support check` to
-confirm activation. Keep the Discord settings directory on the same persistent
-volume for future deployments.
+ticket also preserves activation, even when the setup needs repair. If existing
+settings fail validation and no managed ticket can be recognized, ticket creation
+stays paused across restarts. Repair the setup and run `/support activate` to resume.
+Host-wide support settings that cannot be validated for a server also pause its
+ticket creation on upgrade.
+
+If Discord data is unavailable, TrackerBot reassesses when the server becomes
+available or the bot restarts. It retries failed assessments with backoff.
+While a server is waiting for assessment, ticket creation stays paused and
+`/support check`, `/support activate`, and unrelated commands remain available.
+Keep the Discord settings directory on the same persistent volume.
 
 The live dropdown uses five fixed routes: Tracker, RatScanner, Monitor, account
 support, and harassment/unwanted DMs. Product responses are private-to-user links,
@@ -151,6 +157,11 @@ account creation. There is no new server-wide ticket rate limiter.
   the same button with a fresh requester and verify the privacy prompt and
   account-queue permissions. Temporarily remove a required bot permission and
   verify the old button cannot create a ticket in either category.
+- Staging upgrade: use a copy of pre-activation settings with an existing help
+  desk, no managed tickets, and a required bot permission removed. Verify the old
+  button cannot create a legacy ticket, `/support check` reports the blocker, and
+  `/tt help` works. Restore the permission, restart, and verify ticket creation
+  stays paused until `/support activate` succeeds.
 - Ordinary member: open the panel with no optional onboarding answers. All three
   product links and bug/contact links are usable; inaccessible product routing
   gives no private channel link. No product selection creates a ticket or posts

@@ -254,18 +254,49 @@ test("upgrade only preserves complete settings for their server or a recognized 
   assert.equal(isSupportActive(ids.guild), false);
 });
 
-test("upgrade keeps complete but unusable settings in setup when no managed ticket exists", async () => {
+test("upgrade pauses existing help-desk routing when configuration is invalid and no managed ticket remains", async () => {
   const f = fixture();
   await initializeDestinations(`${settingsFile}.invalid`);
   process.env.SUPPORT_CONTACT_URL = "http://example.com";
   await migrateSupportActivations([f.guild]);
   assert.equal(isSupportActive(ids.guild), false, "invalid link must block automatic activation");
 
-  await initializeDestinations(`${settingsFile}.no-permissions`);
-  process.env.SUPPORT_CONTACT_URL = settings.SUPPORT_CONTACT_URL;
-  f.channels.get(ids.account).permissionsFor = () => ({ has: () => false });
+  const legacy = fixture({ action: "legacy" });
+  assert.equal(await handleSupportInteraction(legacy.interaction), true, "the old button must not fall through to legacy ticket creation");
+  assert.match(last(legacy), /ticket creation is paused/i);
+});
+
+test("upgrade persists a hold on ticket creation after permission loss until staff activate", async () => {
+  const f = fixture({ action: "legacy", actorRoles: [ids.admin] });
+  const file = `${settingsFile}.no-permissions`;
+  const category = f.channels.get(ids.account);
+  const permissionsFor = category.permissionsFor;
+  category.permissionsFor = () => ({ has: () => false });
+  await initializeDestinations(file);
   await migrateSupportActivations([f.guild]);
   assert.equal(isSupportActive(ids.guild), false, "missing permissions must block automatic activation");
+
+  await initializeDestinations(file);
+  category.permissionsFor = permissionsFor;
+  await migrateSupportActivations([f.guild]);
+  let dispatch;
+  registerInteractionHandler({ on: (_event, callback) => { dispatch = callback; } });
+  const legacyCategory = "100000000000000050";
+  await updateDestination(ids.guild, "tickets", legacyCategory, () => {});
+  f.channels.set(legacyCategory, { id: legacyCategory, type: ChannelType.GuildCategory });
+  await dispatch(f.interaction);
+  assert.equal(f.created.length, 0);
+  assert.match(last(f), /ticket creation is paused/i);
+
+  f.setSubcommand("check");
+  await executeSupport(f.interaction);
+  assert.match(last(f), /activate/i);
+  assert.match(last(f), /paused/i);
+  f.setSubcommand("activate");
+  await executeSupport(f.interaction);
+  assert.equal(isSupportActive(ids.guild), true);
+  await dispatch(f.interaction);
+  assert.match(last(f), new RegExp(ids.accountRole));
 });
 
 test("upgrade retries unassessed servers without falling back to legacy routing", async () => {
@@ -284,10 +315,9 @@ test("upgrade retries unassessed servers without falling back to legacy routing"
   legacy.interaction.isRepliable = () => true;
   legacy.interaction.reply = async payload => legacy.replies.push(payload);
   let dispatch;
-  registerInteractionHandler({ on: (_event, callback) => { dispatch = callback; } },
-    guildId => !isSupportActivationPending(guildId));
+  registerInteractionHandler({ on: (_event, callback) => { dispatch = callback; } });
   await dispatch(legacy.interaction);
-  assert.match(last(legacy), /waiting for server data/);
+  assert.match(last(legacy), /ticket creation is paused/i);
   assert.equal(legacy.created.length, 0);
   f.guild.available = true;
   f.guild.members.fetchMe = async () => { throw new Error("temporarily unavailable"); };

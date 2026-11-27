@@ -14,6 +14,8 @@ ensureEnvVars();
 await initializeDestinations();
 
 const client = createClient();
+const supportRetryDelays = [1000, 5000, 30000];
+const supportRetries = new Set();
 let settingsReady = false;
 
 async function stopClient() {
@@ -42,7 +44,7 @@ client.once(Events.ClientReady, async () => {
   }
   settingsReady = true;
   for (const guild of client.guilds.cache.values()) {
-    if (guild.available) void retryGuildActivation(guild);
+    if (guild.available) void startSupportRetry(guild);
   }
 
   try {
@@ -53,17 +55,34 @@ client.once(Events.ClientReady, async () => {
   }
 });
 
-async function retryGuildActivation(guild) {
-  if (!settingsReady || !isSupportActivationPending(guild.id)) return;
-  try {
-    await migrateSupportActivations([guild]);
-  } catch (err) {
-    console.warn("Could not retry help-desk activation", { code: err?.code ?? "unknown" });
-  }
+function startSupportRetry(guild) {
+  if (!settingsReady || !isSupportActivationPending(guild.id) || supportRetries.has(guild.id)) return;
+  supportRetries.add(guild.id);
+  return retryGuildActivation(guild.id, 0);
 }
 
-client.on(Events.GuildAvailable, retryGuildActivation);
-registerInteractionHandler(client, guildId => settingsReady && !isSupportActivationPending(guildId));
+async function retryGuildActivation(guildId, attempt) {
+  const guild = client.guilds.cache.get(guildId);
+  if (guild?.available && isSupportActivationPending(guildId)) {
+    try {
+      await migrateSupportActivations([guild]);
+    } catch (err) {
+      console.warn("Could not retry help-desk activation", { guildId, code: err?.code ?? "unknown" });
+    }
+    if (guild.available && isSupportActivationPending(guildId)) {
+      const delay = supportRetryDelays[attempt];
+      if (delay !== undefined) {
+        setTimeout(() => retryGuildActivation(guildId, attempt + 1), delay).unref();
+        return;
+      }
+      console.warn("Help-desk activation still pending after retries", { guildId });
+    }
+  }
+  supportRetries.delete(guildId);
+}
+
+client.on(Events.GuildAvailable, startSupportRetry);
+registerInteractionHandler(client, () => settingsReady);
 registerMemberHandlers(client);
 setupHoneypot(client);
 setupNikitaXFeed(client);

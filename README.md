@@ -305,7 +305,9 @@ settings file across restarts. Existing ticket permissions are preserved. Use a
 single bot instance, including during deployments.
 
 On upgrade, servers with a valid existing setup or a recognized managed ticket
-start active. Use `/support check` after upgrading to confirm the server's status.
+start active. If an existing setup fails validation, ticket creation stays paused
+until staff repair it and run `/support activate`. Use `/support check` after upgrading
+to confirm the server's status.
 
 See [help-desk setup, privacy, smoke tests, and rollback](docs/SUPPORT.md).
 
