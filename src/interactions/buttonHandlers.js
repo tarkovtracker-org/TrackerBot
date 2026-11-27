@@ -1,8 +1,7 @@
 import { ChannelType, PermissionFlagsBits, MessageFlags } from "discord.js";
 import { reactionRoleNameMap, getTicketStaffRoleIds, getNotificationRoleId, isSafeNotificationRole } from "../config/constants.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
-import { getDestinationId, getPreviousTicketParent, withDestinationReadLock } from "../config/destinations.js";
-import { isSupportConfigured } from "../config/support.js";
+import { getDestinationId, getPreviousTicketParent, isSupportActivationBlocked, isSupportActive, withDestinationReadLock } from "../config/destinations.js";
 
 const colors = {
   success: 0x4ade80,
@@ -47,7 +46,7 @@ export async function handleButtonInteraction(interaction) {
 
 async function handleTicketCreation(interaction) {
   const guild = interaction.guild;
-  if (isSupportConfigured(guild.id)) {
+  if (isSupportActive(guild.id) || isSupportActivationBlocked(guild.id)) {
     await interaction.editReply({ content: "Support settings changed. Click the ticket button again to see the current options." });
     return;
   }

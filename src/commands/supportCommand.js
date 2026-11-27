@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags, PermissionFlagsBits, StringSelectMenuBuilder } from "discord.js";
 import { hasAdminRole } from "../config/constants.js";
+import { activateSupport, isSupportActivationBlocked, isSupportActive, withDestinationReadLock } from "../config/destinations.js";
 import { loadSupportContext, SupportConfigurationError, supportMenuId } from "../config/support.js";
 import { createCardEmbed } from "../utils/cardEmbed.js";
 import { noMentions } from "../utils/messageReply.js";
@@ -9,9 +10,14 @@ const panelOperations = new Set();
 export function supportPanel(config, guildId) {
   const products = Object.entries(config.products);
   const link = (label, url) => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(label).setURL(url);
+  const contactButtons = new ActionRowBuilder().addComponents(link("Private contact", config.contactUrl));
+  const escalationNotice = config.escalationUrl
+    ? "Use Alternative contact if your concern involves someone who handles tickets."
+    : "Independent escalation is unavailable. Keep concerns about ticket staff out of tickets they can access.";
+  if (config.escalationUrl) contactButtons.addComponents(link("Alternative contact", config.escalationUrl));
   return {
     embeds: [createCardEmbed({ title: "How can we help?",
-      description: "Choose a tool for public help, or request a private account-support/moderation ticket. Ticket access is explained before you open one. Never post passwords, tokens, or personal evidence here.\n\nThe links below work even when the bot is offline. Use Alternative contact if your concern involves someone who handles tickets. Discord administrators inherently retain ticket access." })],
+      description: `Choose a tool for public help, or request a private account-support/moderation ticket. Ticket access is explained before you open one. Never post passwords, tokens, or personal evidence here.\n\nThe links below work even when the bot is offline. ${escalationNotice} Discord administrators inherently retain ticket access.` })],
     components: [
       new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(supportMenuId)
         .setPlaceholder("What do you need help with?").addOptions(
@@ -22,14 +28,17 @@ export function supportPanel(config, guildId) {
         ...products.map(([, product]) => link(product.label, `https://discord.com/channels/${guildId}/${product.channelId}`)),
         link("Tracker bug report", "https://github.com/tarkovtracker-org/TarkovTracker/issues/new/choose")
       ),
-      new ActionRowBuilder().addComponents(link("Private contact", config.contactUrl), link("Alternative contact", config.escalationUrl))
+      contactButtons
     ], allowedMentions: noMentions
   };
 }
 
-async function requireAdmin(interaction) {
+async function requireAdmin(interaction, activate = false) {
   const member = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
-  if (!hasAdminRole(member.roles.cache)) throw new Error("Configured admin access required.");
+  if (!hasAdminRole(member.roles.cache)) throw new SupportConfigurationError("This command requires a configured TrackerBot admin role.");
+  if (activate && !member.permissions.has(PermissionFlagsBits.Administrator)) {
+    throw new SupportConfigurationError("Activating the help desk also requires Discord Administrator.");
+  }
 }
 
 async function panelTarget(interaction, bot, messageId) {
@@ -54,13 +63,52 @@ export async function executeSupport(interaction) {
   const key = `${interaction.guildId}:${interaction.channelId}`;
   let ownsLock = false;
   let mutationStarted = false;
+  const subcommand = interaction.options.getSubcommand();
   try {
-    await requireAdmin(interaction);
-    const context = await loadSupportContext(interaction.guild);
-    if (interaction.options.getSubcommand() === "check") {
-      await interaction.editReply({ content: "Support configuration checks passed: product channels, separate ticket categories/staff roles, contact links, and required bot permissions. This does not verify member-role visibility, contact responsiveness, or production topology; complete the documented live smoke tests.", allowedMentions: noMentions });
+    if (subcommand === "activate") {
+      await requireAdmin(interaction, true);
+      const durable = await activateSupport(interaction.guildId, async () => {
+        await loadSupportContext(interaction.guild);
+        await requireAdmin(interaction, true);
+      });
+      const content = durable === null ? "The help desk is already active."
+        : "Help desk activated. The old ticket button now shows the account-support privacy prompt. Use /support panel to publish the help desk.";
+      await interaction.editReply({ content: content + (durable === false
+        ? " TrackerBot could not confirm activation will survive a crash." : ""), allowedMentions: noMentions })
+        .catch(err => console.warn("Support activation confirmation failed", { code: err?.code ?? "unknown" }));
       return;
     }
+    await requireAdmin(interaction);
+    if (subcommand === "check") {
+      const content = await withDestinationReadLock(interaction.guildId, async () => {
+        const active = isSupportActive(interaction.guildId);
+        const blocked = isSupportActivationBlocked(interaction.guildId);
+        const paused = "Ticket creation is paused while the help desk is checked.";
+        try {
+          await loadSupportContext(interaction.guild);
+        } catch (error) {
+          if (!(error instanceof SupportConfigurationError)) {
+            if (!blocked) throw error;
+            console.warn("Could not check the paused help desk", { code: error?.code ?? "unknown" });
+            return `${paused} Discord checks could not complete. Run /support check again once Discord is available.`;
+          }
+          const status = blocked ? paused : active ? "Help desk is active."
+            : "Help desk is in setup. The old ticket button still uses the legacy route.";
+          return `${status}\n\nFix these setup blockers:\n${error.message}`;
+        }
+        const next = active
+          ? "The help desk is active. Use /support panel to publish or update the panel."
+          : "Ready to activate. A Discord administrator with the TrackerBot admin role can run /support activate.";
+        return `${blocked ? `${paused} ` : ""}Support configuration checks passed. ${next}\n\nUse the documented live smoke tests to verify member access, contact responsiveness, and deployment behavior.`;
+      });
+      await interaction.editReply({ content, allowedMentions: noMentions });
+      return;
+    }
+    if (!isSupportActive(interaction.guildId)) {
+      await interaction.editReply({ content: "Run /support check, then /support activate before publishing a help-desk panel.", allowedMentions: noMentions });
+      return;
+    }
+    const context = await loadSupportContext(interaction.guild);
     if (panelOperations.has(key)) {
       await interaction.editReply({ content: "Another panel operation is in progress in this channel." });
       return;
@@ -103,8 +151,9 @@ export async function executeSupport(interaction) {
     await interaction.editReply({ content: mutationStarted
       ? "Panel delivery could not be confirmed. Check this channel before repeating; it may already have applied."
       : err?.code === "InteractionCollectorError" ? "Preview expired. Nothing published."
-        : err instanceof SupportConfigurationError ? `${err.message} Nothing published.`
-          : "Support checks failed or admin access changed. Review the support configuration, destination, message ID, and bot permissions. Nothing published.",
+        : err instanceof SupportConfigurationError ? `${err.message}\n${subcommand === "activate" ? "Activation unchanged." : "Nothing published."}`
+          : subcommand === "activate" ? "TrackerBot could not validate or save the activation. Run /support check and try again."
+            : "Support checks failed. Review the support configuration, destination, message ID, and bot permissions. Nothing published.",
       embeds: [], components: [], allowedMentions: noMentions });
   } finally {
     if (ownsLock) panelOperations.delete(key);

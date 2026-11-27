@@ -6,12 +6,12 @@ import { join } from "node:path";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { ChannelType, Collection, MessageFlags, OverwriteType, PermissionOverwrites, PermissionFlagsBits as P } from "discord.js";
 import { adminRoles, isSafeNotificationRole } from "../src/config/constants.js";
-import { getSupportConfig, loadSupportContext, parseTicketTopic, supportMenuId, ticketBotAccess, ticketConfirmationId, ticketTopic } from "../src/config/support.js";
+import { getSupportConfig, loadSupportContext, migrateSupportActivations, parseTicketTopic, supportMenuId, ticketConfirmationId, ticketTopic } from "../src/config/support.js";
 import { handleSupportInteraction } from "../src/interactions/supportHandlers.js";
 import { executeSupport, supportPanel } from "../src/commands/supportCommand.js";
 import { registerInteractionHandler } from "../src/handlers/interactionHandler.js";
 import { handleChatInputCommand } from "../src/interactions/slashHandlers.js";
-import { initializeDestinations, updateDestination } from "../src/config/destinations.js";
+import { initializeDestinations, isSupportActivationPending, isSupportActive, updateDestination } from "../src/config/destinations.js";
 
 const ids = {
   guild: "100000000000000001", bot: "100000000000000002", member: "100000000000000003",
@@ -29,13 +29,20 @@ const settings = {
   SUPPORT_ESCALATION_URL: "https://discord.com/users/100000000000000021"
 };
 let previous;
-beforeEach(t => {
+let settingsFile;
+beforeEach(async t => {
   previous = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
   Object.assign(process.env, settings);
   adminRoles.add(ids.admin);
   t.mock.method(console, "warn", () => {});
+  const dir = await mkdtemp(join(tmpdir(), "trackerbot-support-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  settingsFile = join(dir, "destinations.json");
+  await initializeDestinations(settingsFile);
+  await migrateSupportActivations([fixture().guild]);
 });
-afterEach(() => {
+afterEach(async () => {
+  await initializeDestinations(null);
   for (const [key, value] of Object.entries(previous)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
@@ -50,10 +57,11 @@ function fixture({ actor = ids.member, actorRoles = [], action = "menu", value =
   const edits = [];
   const guild = { id: ids.guild };
   const permissions = { has: () => true };
-  const member = { id: actor, roles: { cache: new Collection(actorRoles.map(id => [id, { id, guild }])) } };
-  const bot = { id: ids.bot };
+  const member = { id: actor, user: { username: "requester" }, permissions: { has: () => true },
+    roles: { cache: new Collection(actorRoles.map(id => [id, { id, guild }])) } };
+  const bot = { id: ids.bot, permissions };
   const channels = new Collection();
-  const roles = new Collection([ids.accountRole, ids.moderationRole, ids.admin].map(id => [id, { id, guild, managed: false }]));
+  const roles = new Collection([ids.accountRole, ids.moderationRole, ids.admin].map(id => [id, { id, name: "Staff", guild, managed: false }]));
   const channel = (id, type) => ({ id, type, guildId: ids.guild, permissionsFor: () => permissions });
   for (const key of ["tracker", "scanner", "monitor", "panel"]) channels.set(ids[key], channel(ids[key], ChannelType.GuildText));
   for (const key of ["account", "moderation"]) channels.set(ids[key], channel(ids[key], ChannelType.GuildCategory));
@@ -73,6 +81,7 @@ function fixture({ actor = ids.member, actorRoles = [], action = "menu", value =
   };
   if (["close", "reopen"].includes(action)) channels.set(ids.ticket, ticket);
   guild.channels = {
+    cache: channels,
     fetch: async (id) => { events.push("channel-fetch"); return id ? channels.get(id) : channels; },
     create: async payload => {
       events.push("ticket-create"); created.push(payload);
@@ -81,8 +90,8 @@ function fixture({ actor = ids.member, actorRoles = [], action = "menu", value =
       return ticket;
     }
   };
-  guild.roles = { fetch: async () => roles };
-  guild.members = { fetchMe: async options => {
+  guild.roles = { cache: roles, fetch: async () => roles };
+  guild.members = { me: bot, fetchMe: async options => {
     assert.deepEqual(options, { force: true });
     return bot;
   }, fetch: async () => { events.push("member-fetch"); return member; } };
@@ -118,6 +127,283 @@ function fixture({ actor = ids.member, actorRoles = [], action = "menu", value =
   };
 }
 const last = f => f.replies.at(-1)?.content;
+
+test("the old button creates legacy tickets during setup and opens the private queue after activation", async () => {
+  const legacyCategory = "100000000000000050";
+  const draftFile = `${settingsFile}.draft`;
+  for (const key of Object.keys(settings)) delete process.env[key];
+  await initializeDestinations(draftFile);
+  await migrateSupportActivations([]);
+  await updateDestination(ids.guild, "tickets", legacyCategory, () => {});
+  let handle;
+  registerInteractionHandler({ on: (_event, callback) => { handle = callback; } });
+  async function openLegacyTicket() {
+    const f = fixture({ action: "legacy" });
+    f.channels.set(legacyCategory, { id: legacyCategory, type: ChannelType.GuildCategory });
+    await handle(f.interaction);
+    assert.equal(f.created[0]?.parent, legacyCategory);
+    assert.equal(f.created[0]?.topic, `Ticket for ${ids.member}`);
+  }
+  await openLegacyTicket();
+  process.env.SUPPORT_TRACKER_CHANNEL_ID = ids.tracker;
+  await openLegacyTicket();
+
+  const admin = fixture({ actorRoles: [ids.admin] });
+  admin.setSubcommand("activate");
+  await executeSupport(admin.interaction);
+  assert.match(last(admin), /Activation unchanged/);
+  assert.equal(isSupportActive(ids.guild), false);
+
+  Object.assign(process.env, settings);
+  await initializeDestinations(draftFile);
+  await migrateSupportActivations([admin.guild]);
+  await openLegacyTicket();
+
+  admin.setSubcommand("check");
+  await executeSupport(admin.interaction);
+  assert.match(last(admin), /Ready to activate/);
+  admin.setSubcommand("panel");
+  await executeSupport(admin.interaction);
+  assert.match(last(admin), /activate before publishing/);
+  assert.equal(admin.publicMessages.length, 0);
+
+  admin.setSubcommand("activate");
+  await executeSupport(admin.interaction);
+  assert.match(last(admin), /Help desk activated/);
+  assert.equal(admin.publicMessages.length, 0);
+  await initializeDestinations(draftFile);
+  assert.equal(isSupportActive(ids.guild), true);
+  assert.equal(isSupportActive(ids.other), false);
+  await executeSupport(admin.interaction);
+  assert.match(last(admin), /already active/);
+
+  const member = fixture({ action: "legacy" });
+  await handle(member.interaction);
+  assert.match(last(member), new RegExp(ids.accountRole));
+  assert.equal(member.created.length, 0);
+  member.interaction.customId = member.replies.at(-1).components[0].toJSON().components[0].custom_id;
+  await handle(member.interaction);
+  assert.equal(member.created[0]?.parent, ids.account);
+  assert.deepEqual(member.created[0]?.permissionOverwrites.map(role => role.id),
+    [ids.guild, ids.member, ids.bot, ids.accountRole]);
+
+  member.interaction.customId = "create_ticket";
+  member.channels.get(ids.account).permissionsFor = () => ({ has: () => false });
+  await handle(member.interaction);
+  assert.match(last(member), /No ticket change was attempted/);
+  assert.equal(member.created.length, 1);
+
+  admin.channels.get(ids.account).permissionsFor = () => ({ has: () => false });
+  await executeSupport(admin.interaction);
+  assert.match(last(admin), /Manage Roles/);
+  assert.match(last(admin), /Activation unchanged/);
+  assert.equal(isSupportActive(ids.guild), true);
+});
+
+test("support check lists multiple blockers in one reply", async () => {
+  const f = fixture({ actorRoles: [ids.admin] });
+  f.setSubcommand("check");
+  delete process.env.SUPPORT_TRACKER_CHANNEL_ID;
+  delete process.env.SUPPORT_MODERATION_STAFF_ROLE_IDS;
+  f.channels.get(ids.account).permissionsFor = () => ({ has: () => false });
+  await executeSupport(f.interaction);
+  assert.match(last(f), /SUPPORT_TRACKER_CHANNEL_ID/);
+  assert.match(last(f), /SUPPORT_MODERATION_STAFF_ROLE_IDS/);
+  assert.match(last(f), /SUPPORT_ACCOUNT_CATEGORY_ID/);
+});
+
+test("support setup requires Manage Roles on the bot's server role", async () => {
+  const f = fixture();
+  f.guild.members.me.permissions = { has: permission => permission !== P.ManageRoles };
+  await assert.rejects(loadSupportContext(f.guild), /Give TrackerBot Manage Roles through its server role/);
+});
+
+test("a primary contact alone supports activation and a one-link contact row", async () => {
+  const f = fixture({ actorRoles: [ids.admin] });
+  await initializeDestinations(`${settingsFile}.primary-only`);
+  await migrateSupportActivations([]);
+  delete process.env.SUPPORT_ESCALATION_URL;
+  f.setSubcommand("activate");
+  await executeSupport(f.interaction);
+  assert.match(last(f), /Help desk activated/);
+  assert.equal(isSupportActive(ids.guild), true);
+
+  const panel = supportPanel(getSupportConfig(ids.guild), ids.guild);
+  const contacts = panel.components.at(-1).toJSON().components;
+  assert.deepEqual(contacts.map(({ label, url }) => [label, url]), [["Private contact", settings.SUPPORT_CONTACT_URL]]);
+  assert.match(panel.embeds[0].toJSON().description, /Independent escalation is unavailable/);
+});
+
+for (const value of ["account", "moderation"]) {
+  test(`${value} tickets show safe reporting guidance when escalation is absent`, async () => {
+    delete process.env.SUPPORT_ESCALATION_URL;
+    const menu = fixture({ value });
+    await handleSupportInteraction(menu.interaction);
+    assert.match(last(menu), /Independent escalation is unavailable/);
+    assert.match(last(menu), /Keep concerns about anyone with ticket access out of this ticket/);
+    assert.equal(menu.replies.at(-1).components[0].toJSON().components.length, 1);
+
+    const request = fixture({ action: "open", value });
+    await handleSupportInteraction(request.interaction);
+    assert.equal(request.created.length, 1);
+    const notice = request.publicMessages[0].embeds[0].toJSON().description;
+    assert.match(notice, /Independent escalation is unavailable/);
+    assert.doesNotMatch(notice, /undefined|Alternative private contact:/);
+  });
+}
+
+test("clearing an escalation contact invalidates previously issued ticket confirmations", async () => {
+  const request = fixture({ action: "open", value: "moderation" });
+  delete process.env.SUPPORT_ESCALATION_URL;
+  await handleSupportInteraction(request.interaction);
+  assert.equal(request.created.length, 0);
+  assert.match(last(request), /ticket audience or destination changed/);
+});
+
+test("activation rechecks both administrator permissions and the configured role before saving", async () => {
+  const f = fixture({ actorRoles: [ids.admin] });
+  await initializeDestinations(`${settingsFile}.draft`);
+  await migrateSupportActivations([]);
+  f.setSubcommand("activate");
+  f.guild.roles.fetch = async () => {
+    f.member.permissions.has = () => false;
+    return f.roles;
+  };
+  await executeSupport(f.interaction);
+  assert.match(last(f), /requires Discord Administrator/);
+  assert.equal(isSupportActive(ids.guild), false);
+
+  f.member.permissions.has = () => true;
+  f.guild.roles.fetch = async () => {
+    f.member.roles.cache.clear();
+    return f.roles;
+  };
+  await executeSupport(f.interaction);
+  assert.match(last(f), /requires a configured TrackerBot admin role/);
+  assert.equal(isSupportActive(ids.guild), false);
+});
+
+test("upgrade only preserves complete settings for their server or a recognized managed ticket", async () => {
+  const existing = fixture().guild;
+  const partial = fixture({ action: "close" });
+  const unrelated = { ...existing, id: ids.other, channels: { cache: new Collection() } };
+  await initializeDestinations(`${settingsFile}.host`);
+  await migrateSupportActivations([existing, unrelated]);
+  assert.equal(isSupportActive(ids.guild), true);
+  assert.equal(isSupportActive(ids.other), false);
+
+  await initializeDestinations(`${settingsFile}.partial`);
+  delete process.env.SUPPORT_TRACKER_CHANNEL_ID;
+  await migrateSupportActivations([partial.guild]);
+  assert.equal(isSupportActive(ids.guild), true);
+
+  await initializeDestinations(`${settingsFile}.new`);
+  await migrateSupportActivations([existing]);
+  assert.equal(isSupportActive(ids.guild), false);
+});
+
+test("upgrade pauses existing help-desk routing when configuration is invalid and no managed ticket remains", async () => {
+  const f = fixture();
+  await initializeDestinations(`${settingsFile}.invalid`);
+  process.env.SUPPORT_CONTACT_URL = "http://example.com";
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActive(ids.guild), false, "invalid link must block automatic activation");
+
+  const legacy = fixture({ action: "legacy" });
+  assert.equal(await handleSupportInteraction(legacy.interaction), true, "the old button must not fall through to legacy ticket creation");
+  assert.match(last(legacy), /ticket creation is paused/i);
+});
+
+test("upgrade persists a hold on ticket creation after permission loss until staff activate", async () => {
+  const f = fixture({ action: "legacy", actorRoles: [ids.admin] });
+  const file = `${settingsFile}.no-permissions`;
+  const category = f.channels.get(ids.account);
+  const permissionsFor = category.permissionsFor;
+  category.permissionsFor = () => ({ has: () => false });
+  await initializeDestinations(file);
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActive(ids.guild), false, "missing permissions must block automatic activation");
+
+  await initializeDestinations(file);
+  category.permissionsFor = permissionsFor;
+  await migrateSupportActivations([f.guild]);
+  let dispatch;
+  registerInteractionHandler({ on: (_event, callback) => { dispatch = callback; } });
+  const legacyCategory = "100000000000000050";
+  await updateDestination(ids.guild, "tickets", legacyCategory, () => {});
+  f.channels.set(legacyCategory, { id: legacyCategory, type: ChannelType.GuildCategory });
+  await dispatch(f.interaction);
+  assert.equal(f.created.length, 0);
+  assert.match(last(f), /ticket creation is paused/i);
+
+  f.setSubcommand("check");
+  await executeSupport(f.interaction);
+  assert.match(last(f), /activate/i);
+  assert.match(last(f), /paused/i);
+  f.setSubcommand("activate");
+  await executeSupport(f.interaction);
+  assert.equal(isSupportActive(ids.guild), true);
+  await dispatch(f.interaction);
+  assert.match(last(f), new RegExp(ids.accountRole));
+});
+
+test("upgrade retries unassessed servers without falling back to legacy routing", async () => {
+  const f = fixture();
+  const file = `${settingsFile}.unavailable`;
+  const fetchBot = f.guild.members.fetchMe;
+  f.guild.available = false;
+  f.guild.members.me = null;
+  await initializeDestinations(file);
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActivationPending(ids.guild), true);
+
+  await initializeDestinations(file);
+  assert.equal(isSupportActivationPending(ids.guild), true);
+  const legacy = fixture({ action: "legacy" });
+  legacy.interaction.isRepliable = () => true;
+  legacy.interaction.reply = async payload => legacy.replies.push(payload);
+  let dispatch;
+  registerInteractionHandler({ on: (_event, callback) => { dispatch = callback; } });
+  await dispatch(legacy.interaction);
+  assert.match(last(legacy), /ticket creation is paused/i);
+  assert.equal(legacy.created.length, 0);
+  f.guild.available = true;
+  f.guild.members.fetchMe = async () => { throw new Error("temporarily unavailable"); };
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActivationPending(ids.guild), true);
+
+  f.guild.members.fetchMe = fetchBot;
+  await migrateSupportActivations([f.guild]);
+  assert.equal(isSupportActive(ids.guild), true);
+  assert.equal(isSupportActivationPending(ids.guild), false);
+});
+
+test("a draft help desk rejects both its menu and old confirmation buttons", async () => {
+  const interactions = [fixture({ value: "account" }), fixture({ action: "open", value: "account" })];
+  await initializeDestinations(`${settingsFile}.draft`);
+  await migrateSupportActivations([]);
+  for (const f of interactions) {
+    assert.equal(await handleSupportInteraction(f.interaction), true);
+    assert.match(last(f), /awaiting staff activation/);
+    assert.equal(f.created.length, 0);
+  }
+});
+
+test("Discord interactions receive a private retry response while settings are starting", async () => {
+  const f = fixture({ value: "account" });
+  f.interaction.isRepliable = () => true;
+  f.interaction.reply = async payload => f.replies.push(payload);
+  let handle;
+  let ready = false;
+  registerInteractionHandler({ on: (_event, callback) => { handle = callback; } }, () => ready);
+  await handle(f.interaction);
+  assert.match(last(f), /starting/);
+  assert.equal(f.replies.at(-1).flags, MessageFlags.Ephemeral);
+  assert.deepEqual(f.events, []);
+  ready = true;
+  await handle(f.interaction);
+  assert.match(last(f), new RegExp(ids.accountRole));
+});
 
 for (const value of ["tracker", "scanner", "monitor"]) {
   test(`${value} routes privately to the configured channel without creating a ticket`, async () => {
@@ -163,7 +449,9 @@ for (const value of ["account", "moderation"]) {
     assert.deepEqual(created.permissionOverwrites.map(item => item.id), [ids.guild, ids.member, ids.bot, ids[`${value}Role`]]);
     assert.deepEqual(created.permissionOverwrites[0].deny, [P.ViewChannel]);
     assert.equal(created.permissionOverwrites.some(item => item.id === ids[value === "account" ? "moderationRole" : "accountRole"]), false);
-    assert.deepEqual(created.permissionOverwrites[2].allow, ticketBotAccess);
+    // Discord rejects an explicit Manage Roles overwrite from a non-admin bot.
+    assert.deepEqual(created.permissionOverwrites[2].allow,
+      [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.ManageChannels]);
     assert.equal(created.permissionOverwrites[3].allow.includes(P.ManageChannels), false);
     assert.equal(created.permissionOverwrites[1].allow.includes(P.AttachFiles), true);
     assert.equal(f.publicMessages[0].components[0].toJSON().components.length, 2);
@@ -189,7 +477,8 @@ test("legacy create_ticket uses the privacy disclosure when new support is confi
   await handleSupportInteraction(f.interaction);
   assert.match(last(f), /No ticket change was attempted/, "partial configuration must not fall back to legacy staff access");
   for (const key of Object.keys(settings)) delete process.env[key];
-  assert.equal(await handleSupportInteraction(f.interaction), false, "unconfigured deployments retain the original handler");
+  assert.equal(await handleSupportInteraction(f.interaction), true, "activated deployments never fall back to legacy staff access");
+  assert.match(last(f), /No ticket change was attempted/);
 });
 
 test("duplicate detection uses fetched channels and recognizes legacy account tickets", async () => {
@@ -288,6 +577,7 @@ test("a category move waits for an in-flight ticket creation and keeps the creat
   t.after(() => rm(dir, { recursive: true, force: true }));
   await initializeDestinations(join(dir, "destinations.json"));
   const f = fixture({ action: "open", value: "moderation" });
+  await migrateSupportActivations([f.guild]);
   const newCategory = "100000000000000099";
   f.channels.set(newCategory, { ...f.channels.get(ids.moderation), id: newCategory });
   const started = Promise.withResolvers();
@@ -401,6 +691,7 @@ for (const action of ["close", "reopen"]) {
     assert.equal(f.edits.length, 1);
     assert.equal(f.edits[0].topic, ticketTopic("moderation", ids.member, state));
     assert.deepEqual(f.edits[0].permissionOverwrites.map(item => item.id), [ids.guild, ids.member, ids.bot, ids.moderationRole]);
+    assert.equal(f.edits[0].permissionOverwrites[2].allow.includes(P.ManageRoles), false);
     const owner = f.edits[0].permissionOverwrites[1];
     assert.equal(owner.allow.includes(P.SendMessages), state === "open");
     assert.equal(owner.deny.includes(P.SendMessages), state === "closed");
@@ -470,7 +761,7 @@ for (const [name, value] of [
   ["SUPPORT_TRACKER_CHANNEL_ID", ""], ["SUPPORT_ACCOUNT_CATEGORY_ID", "bad"],
   ["SUPPORT_MODERATION_CATEGORY_ID", ids.account], ["SUPPORT_MODERATION_STAFF_ROLE_IDS", ids.accountRole],
   ["SUPPORT_ACCOUNT_STAFF_ROLE_IDS", `${ids.accountRole},,`], ["SUPPORT_ACCOUNT_STAFF_ROLE_IDS", ""],
-  ["SUPPORT_CONTACT_URL", "http://example.com"], ["SUPPORT_ESCALATION_URL", "https://secret@example.com"],
+  ["SUPPORT_CONTACT_URL", ""], ["SUPPORT_CONTACT_URL", "http://example.com"], ["SUPPORT_ESCALATION_URL", "https://secret@example.com"],
   ["SUPPORT_CONTACT_URL", `https://example.com/${"a".repeat(513)}`]
 ]) {
   test(`invalid support configuration fails closed: ${name} ${value.slice(0, 40)}`, async () => {
@@ -723,7 +1014,7 @@ test("non-admin and DM panel requests cannot publish", async () => {
   const f = fixture();
   await executeSupport(f.interaction);
   assert.equal(f.publicMessages.length, 0);
-  assert.match(last(f), /admin access changed/);
+  assert.match(last(f), /requires a configured TrackerBot admin role/);
   const direct = fixture();
   direct.interaction.inGuild = () => false;
   assert.equal(await handleSupportInteraction(direct.interaction), false);

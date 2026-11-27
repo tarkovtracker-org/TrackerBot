@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { ChannelType, OverwriteType, PermissionFlagsBits } from "discord.js";
-import { getDestinationId, getPreference, getPreviousTicketParent } from "./destinations.js";
+import { ChannelType, OverwriteType, PermissionFlagsBits, PermissionsBitField } from "discord.js";
+import { getDestinationId, getPreference, getPreviousTicketParent,
+  initializeSupportActivations } from "./destinations.js";
 import { supportLinks } from "./preferences.js";
 
 export const supportMenuId = "support:route:v1";
@@ -17,7 +18,8 @@ export const conversationAccess = [
   PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages,
   PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks
 ];
-export const ticketBotAccess = [...conversationAccess, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
+const ticketBotOverwriteAccess = [...conversationAccess, PermissionFlagsBits.ManageChannels];
+export const ticketBotAccess = [...ticketBotOverwriteAccess, PermissionFlagsBits.ManageRoles];
 
 export class SupportConfigurationError extends Error {}
 
@@ -34,16 +36,45 @@ function supportDestinationId(guildId, key, name) {
   return value;
 }
 
-export function isSupportConfigured(guildId) {
+export function migrateSupportActivations(guilds) {
+  return initializeSupportActivations(shouldAssess => Promise.all([...guilds]
+    .filter(guild => shouldAssess(guild.id))
+    .map(async guild => [guild.id, await assessExistingHelpDesk(guild)])));
+}
+
+function hasExistingSupportConfiguration(guildId) {
+  // Match the settings that selected the help-desk route before explicit activation existed.
   return Object.values(supportTicketTypes).some(({ prefix }) => Boolean(process.env[`${prefix}_STAFF_ROLE_IDS`]?.trim()))
     || Object.keys(supportLinks).some(key => Boolean(getPreference(guildId, key)))
     || [...Object.keys(supportProducts), ...Object.keys(supportTicketTypes)]
       .some(key => Boolean(getDestinationId(guildId, `support-${key}`)));
 }
 
+async function assessExistingHelpDesk(guild) {
+  if (guild.available === false) return null;
+  // A managed ticket is evidence of previous use even if the configuration has since broken.
+  if (guild.channels.cache.some(channel => {
+    const ticket = channel.type === ChannelType.GuildText && parseTicketTopic(channel.topic);
+    if (!ticket || !channel.parentId) return false;
+    const key = `support-${ticket.type}`;
+    return channel.parentId === getDestinationId(guild.id, key)
+      || channel.parentId === getPreviousTicketParent(guild.id, key, channel.id);
+  })) return true;
+
+  if (!hasExistingSupportConfiguration(guild.id)) return false;
+  const { config, problems } = readSupportConfig(guild.id);
+  if (problems.length) return "review";
+  const bot = guild.members.me ?? await guild.members.fetchMe({ force: true }).catch(() => null);
+  if (!bot) return null;
+  checkSupportResources(problems, config, guild, guild.channels.cache, guild.roles.cache, bot);
+  return problems.length ? "review" : true;
+}
+
 function contactUrl(guildId, key) {
   const { env, parse } = supportLinks[key];
-  const url = parse(getPreference(guildId, key));
+  const value = getPreference(guildId, key);
+  if (!value && key === "escalation") return undefined;
+  const url = parse(value);
   if (!url) throw new SupportConfigurationError(`Set an HTTPS private-contact link with \`/config edit setting:${key} action:set url:<https-link>\` or configure ${env} on the host.`);
   return url;
 }
@@ -62,38 +93,78 @@ function validateStaffRoles(guildId, roles, ticket) {
   }
 }
 
-export function getSupportConfig(guildId) {
-  const products = Object.fromEntries(Object.entries(supportProducts).map(([key, value]) =>
-    [key, { ...value, channelId: supportDestinationId(guildId, key, value.env) }]
-  ));
-  const tickets = Object.fromEntries(Object.entries(supportTicketTypes).map(([key, value]) => {
-    return [key, { ...value, categoryId: supportDestinationId(guildId, key, `${value.prefix}_CATEGORY_ID`), roleIds: staffRoleIds(value.prefix) }];
-  }));
-  if (tickets.account.categoryId === tickets.moderation.categoryId ||
-      tickets.account.roleIds.some(roleId => tickets.moderation.roleIds.includes(roleId))) {
-    throw new SupportConfigurationError("Account and moderation support need separate categories and non-overlapping staff roles.");
+function collectProblem(problems, read) {
+  try {
+    return read();
+  } catch (error) {
+    if (!(error instanceof SupportConfigurationError)) throw error;
+    problems.push(error.message);
   }
-  return { products, tickets, contactUrl: contactUrl(guildId, "contact"), escalationUrl: contactUrl(guildId, "escalation") };
+}
+
+function readSupportConfig(guildId) {
+  const problems = [];
+  const read = callback => collectProblem(problems, callback);
+  const products = Object.fromEntries(Object.entries(supportProducts).map(([key, value]) =>
+    [key, { ...value, channelId: read(() => supportDestinationId(guildId, key, value.env)) }]
+  ));
+  const tickets = Object.fromEntries(Object.entries(supportTicketTypes).map(([key, value]) =>
+    [key, { ...value, categoryId: read(() => supportDestinationId(guildId, key, `${value.prefix}_CATEGORY_ID`)),
+      roleIds: read(() => staffRoleIds(value.prefix)) ?? [] }]
+  ));
+  if (tickets.account.categoryId && tickets.account.categoryId === tickets.moderation.categoryId) {
+    problems.push("Account and moderation support need separate categories.");
+  }
+  if (tickets.account.roleIds.some(roleId => tickets.moderation.roleIds.includes(roleId))) {
+    problems.push("Account and moderation support need non-overlapping staff roles.");
+  }
+  const config = { products, tickets, contactUrl: read(() => contactUrl(guildId, "contact")),
+    escalationUrl: read(() => contactUrl(guildId, "escalation")) };
+  return { config, problems };
+}
+
+export function getSupportConfig(guildId) {
+  const { config, problems } = readSupportConfig(guildId);
+  if (problems.length) throw new SupportConfigurationError(problems.join("\n"));
+  return config;
+}
+
+function checkSupportDestination(problems, guild, channel, type, bot, required, env, label) {
+  if (channel?.type !== type || channel.guildId !== guild.id) {
+    problems.push(`${label} (${env}): choose a ${type === ChannelType.GuildCategory ? "category" : "text channel"} in this server.`);
+    return;
+  }
+  const permissions = channel.permissionsFor(bot);
+  const missing = new PermissionsBitField(required.filter(permission => !permissions?.has(permission)));
+  if (missing.bitfield) {
+    const names = missing.toArray().map(name => name.replace(/([a-z])([A-Z])/g, "$1 $2"));
+    problems.push(`${label} (${env}): give TrackerBot ${names.join(", ")} in <#${channel.id}>.`);
+  }
+}
+
+function checkSupportResources(problems, config, guild, channels, roles, bot) {
+  if (!bot.permissions.has(PermissionFlagsBits.ManageRoles)) {
+    problems.push("Give TrackerBot Manage Roles through its server role so it can update ticket permissions.");
+  }
+  for (const product of Object.values(config.products)) {
+    if (!product.channelId) continue;
+    checkSupportDestination(problems, guild, channels.get(product.channelId), ChannelType.GuildText, bot,
+      [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], product.env, product.label);
+  }
+  for (const ticket of Object.values(config.tickets)) {
+    if (ticket.categoryId) {
+      checkSupportDestination(problems, guild, channels.get(ticket.categoryId), ChannelType.GuildCategory, bot,
+        ticketBotAccess, `${ticket.prefix}_CATEGORY_ID`, ticket.label);
+    }
+    collectProblem(problems, () => validateStaffRoles(guild.id, roles, ticket));
+  }
 }
 
 export async function loadSupportContext(guild) {
-  const config = getSupportConfig(guild.id);
+  const { config, problems } = readSupportConfig(guild.id);
   const [channels, roles, bot] = await Promise.all([guild.channels.fetch(), guild.roles.fetch(), guild.members.fetchMe({ force: true })]);
-  for (const product of Object.values(config.products)) {
-    const channel = channels.get(product.channelId);
-    if (channel?.type !== ChannelType.GuildText || channel.guildId !== guild.id ||
-        !channel.permissionsFor(bot)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory])) {
-      throw new SupportConfigurationError(`The ${product.env} destination is missing, is not a server text channel, or is inaccessible to the bot.`);
-    }
-  }
-  for (const ticket of Object.values(config.tickets)) {
-    const category = channels.get(ticket.categoryId);
-    if (category?.type !== ChannelType.GuildCategory || category.guildId !== guild.id ||
-        !category.permissionsFor(bot)?.has(ticketBotAccess)) {
-      throw new SupportConfigurationError(`The ${ticket.prefix}_CATEGORY_ID destination is missing or lacks the bot's required permissions.`);
-    }
-    validateStaffRoles(guild.id, roles, ticket);
-  }
+  checkSupportResources(problems, config, guild, channels, roles, bot);
+  if (problems.length) throw new SupportConfigurationError(problems.map(problem => `• ${problem}`).join("\n"));
   return { config, channels, roles, bot };
 }
 
@@ -137,7 +208,7 @@ export function ticketOverwrites(guildId, botId, ticket, ownerId, state) {
     { id: guildId, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
     { id: ownerId, type: OverwriteType.Member, allow: conversationAccess.filter(bit => state === "open" || bit !== PermissionFlagsBits.SendMessages),
       deny: state === "closed" ? [PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads] : [] },
-    { id: botId, type: OverwriteType.Member, allow: ticketBotAccess },
+    { id: botId, type: OverwriteType.Member, allow: ticketBotOverwriteAccess },
     ...ticket.roleIds.map(roleId => ({ id: roleId, type: OverwriteType.Role, allow: conversationAccess }))
   ];
 }

@@ -1,18 +1,16 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ChannelType, Collection, MessageFlags, PermissionFlagsBits } from "discord.js";
+import { activateSupport, initializeDestinations, initializeSupportActivations } from "../src/config/destinations.js";
 import { handleButtonInteraction } from "../src/interactions/buttonHandlers.js";
 
 const originalCategoryId = process.env.TICKET_CATEGORY_ID;
 const originalStaffIds = process.env.TICKET_STAFF_ROLE_IDS;
 beforeEach(t => {
   t.mock.method(console, "warn", () => {});
-  const supportEnv = Object.entries(process.env).filter(([name]) => name.startsWith("SUPPORT_"));
-  for (const [name] of supportEnv) delete process.env[name];
-  t.after(() => {
-    delete process.env.SUPPORT_TRACKER_CHANNEL_ID;
-    for (const [name, value] of supportEnv) process.env[name] = value;
-  });
 });
 afterEach(() => {
   if (originalCategoryId === undefined) delete process.env.TICKET_CATEGORY_ID;
@@ -107,12 +105,21 @@ test("legacy category matching tolerates case and surrounding whitespace", async
   assert.equal(title(f), "Ticket ready");
 });
 
-test("legacy ticket creation stops if help desk configuration changes during acknowledgement", async () => {
+test("legacy ticket creation stops if the help desk activates during acknowledgement", async t => {
   const f = fixture();
+  const guildId = "1536428726756311110";
+  f.interaction.guild.id = guildId;
+  const dir = await mkdtemp(join(tmpdir(), "trackerbot-ticket-activation-"));
+  t.after(async () => {
+    await initializeDestinations(null);
+    await rm(dir, { recursive: true, force: true });
+  });
+  await initializeDestinations(join(dir, "destinations.json"));
+  await initializeSupportActivations(() => []);
   const defer = f.interaction.deferReply;
   f.interaction.deferReply = async options => {
     await defer(options);
-    process.env.SUPPORT_TRACKER_CHANNEL_ID = "1536428726756311110";
+    await activateSupport(guildId, () => {});
   };
   await run(f);
   assert.equal(f.created.length, 0);

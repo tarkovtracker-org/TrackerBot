@@ -40,8 +40,9 @@ const slashCommands = [
   command("ticket", "Close or reopen a managed private support ticket")
     .addSubcommand(sub => sub.setName("close").setDescription("Close this ticket without deleting history"))
     .addSubcommand(sub => sub.setName("reopen").setDescription("Reopen this ticket (configured queue staff only)")),
-  command("support", "Check help-desk configuration or publish its panel", true)
-    .addSubcommand(sub => sub.setName("check").setDescription("Privately validate support destinations and bot permissions"))
+  command("support", "Check, activate, or publish the help desk", true)
+    .addSubcommand(sub => sub.setName("check").setDescription("Show activation status and the help-desk setup checklist"))
+    .addSubcommand(sub => sub.setName("activate").setDescription("Validate setup and switch the old ticket button to the new help desk"))
     .addSubcommand(sub => sub.setName("panel").setDescription("Preview and publish or update the help-desk panel")
       .addStringOption(opt => opt.setName("message_id").setDescription("Existing help-desk message ID in this channel to update"))),
   command("nuke", "Confirm a channel reset: clone settings, then permanently delete its history", true)
