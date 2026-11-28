@@ -27,6 +27,14 @@ approved green candidate can merge; use an authorized disposable test PR, never
 weaken CI or execute an unapproved merge to test enforcement. Also verify the
 license workflow below cannot push directly to the protected default branch.
 
+For the normal merge check, use a small documentation-only PR to `main`. After
+the final push, have a listed code owner other than the author and last pusher
+approve that revision. Confirm both required CI jobs passed on the approved
+revision and GitHub reports the PR as mergeable. Use the standard PR merge
+action without the owner exception. Record the PR, approval, CI run, and merge
+commit on the tracking issue. Use a plain issue reference in the PR so the
+issue can be closed separately after verifying the merge.
+
 ## License PR workflow
 
 The replacement annual job no longer commits or pushes to the default branch.
